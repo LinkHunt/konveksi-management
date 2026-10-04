@@ -1,0 +1,107 @@
+// Skema database - Web app management konveksi (jasa jahit)
+// Database: PostgreSQL (Neon)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Ukuran dikunci di enum (tidak perlu tabel sendiri).
+// Nama enum tidak boleh diawali angka, jadi 2L/3L/5L/8L dipetakan lewat @map.
+enum Ukuran {
+  XS
+  S
+  M
+  L
+  XL
+  L2 @map("2L")
+  L3 @map("3L")
+  L5 @map("5L")
+  L8 @map("8L")
+}
+
+// BAHAN_KELUAR = bahan yang dibawa penjahit luar
+// SETORAN      = hasil jahitan yang disetor balik
+enum JenisTransaksi {
+  BAHAN_KELUAR
+  SETORAN
+}
+
+// 2 akun saja: pemakai harian + admin/dev
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+// Boss = pemilik baju
+model Boss {
+  id     Int         @id @default(autoincrement())
+  nama   String      @unique
+  aktif  Boolean     @default(true)
+  models ModelBaju[]
+}
+
+model ModelBaju {
+  id         Int         @id @default(autoincrement())
+  nama       String
+  bossId     Int
+  boss       Boss        @relation(fields: [bossId], references: [id])
+  aktif      Boolean     @default(true)
+  transaksi  Transaksi[]
+
+  @@unique([bossId, nama])
+}
+
+model Warna {
+  id        Int         @id @default(autoincrement())
+  nama      String      @unique
+  aktif     Boolean     @default(true)
+  transaksi Transaksi[]
+}
+
+model Penjahit {
+  id        Int         @id @default(autoincrement())
+  nama      String      @unique
+  aktif     Boolean     @default(true)
+  transaksi Transaksi[]
+}
+
+// Satu baris per kejadian (bahan keluar atau setoran).
+// Jumlah per ukuran disimpan di TransaksiItem.
+model Transaksi {
+  id         Int             @id @default(autoincrement())
+  tanggal    DateTime        @db.Date
+  jenis      JenisTransaksi
+  penjahitId Int
+  penjahit   Penjahit        @relation(fields: [penjahitId], references: [id])
+  modelId    Int
+  model      ModelBaju       @relation(fields: [modelId], references: [id])
+  warnaId    Int
+  warna      Warna           @relation(fields: [warnaId], references: [id])
+  catatan    String?
+  createdAt  DateTime        @default(now())
+  items      TransaksiItem[]
+
+  @@index([tanggal])
+  @@index([penjahitId, jenis])
+}
+
+model TransaksiItem {
+  id          Int       @id @default(autoincrement())
+  transaksiId Int
+  transaksi   Transaksi @relation(fields: [transaksiId], references: [id], onDelete: Cascade)
+  ukuran      Ukuran
+  jumlah      Int       // pcs, harus > 0
+
+  @@unique([transaksiId, ukuran])
+}
+
+// Catatan: "sisa belum disetor" dihitung, bukan disimpan.
+// Per penjahit + model + warna + ukuran:
+//   sisa = SUM(jumlah WHERE jenis = BAHAN_KELUAR) - SUM(jumlah WHERE jenis = SETORAN)
