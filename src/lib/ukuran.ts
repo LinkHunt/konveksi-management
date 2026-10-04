@@ -41,13 +41,13 @@ export function isUkuranLabel(value: unknown): value is UkuranLabel {
   return typeof value === "string" && value in LABEL_TO_ENUM;
 }
 
-/** Label API ("2L") -> nama enum Prisma ("L2"). Menyusun ulang input agar tidak ambigu. */
-export function toEnumUkuran(label: string): UkuranLabel {
+/** Label API ("2L") -> nama enum Prisma ("L2"). Input dinormalisasi lebih dulu. */
+export function toEnumUkuran(label: string): string {
   const key = label.trim().toUpperCase();
   if (!isUkuranLabel(key)) {
     throw new UkuranTidakValidError(label);
   }
-  return key;
+  return LABEL_TO_ENUM[key];
 }
 
 /** Nama enum Prisma ("L2") -> label API ("2L"). Nilai tak dikenal dilewati. */

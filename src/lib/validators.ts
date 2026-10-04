@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { UKURAN_LIST, isUkuranLabel } from "./ukuran";
+import { badRequest } from "./api";
 
 /** Nama wajib: ada, bukan cuma spasi, panjang wajar. */
 const namaWajib = z
@@ -85,16 +86,16 @@ export function normalisasiItems(
     if (jumlah <= 0) continue; // jumlah 0 / negatif dibuang
     const label = String(it.ukuran).trim().toUpperCase();
     if (!isUkuranLabel(label)) {
-      throw new Error(`Ukuran tidak dikenal: ${label}.`);
+      throw badRequest(`Ukuran tidak dikenal: ${label}. Gunakan: ${UKURAN_LIST.join(", ")}.`);
     }
     if (seen.has(label)) {
-      throw new Error(`Ukuran ${label} muncul lebih dari sekali.`);
+      throw badRequest(`Ukuran ${label} muncul lebih dari sekali.`);
     }
     seen.add(label);
     hasil.push({ ukuran: label, jumlah });
   }
   if (hasil.length === 0) {
-    throw new Error("Minimal satu baris ukuran dengan jumlah lebih dari 0.");
+    throw badRequest("Minimal satu baris ukuran dengan jumlah lebih dari 0.");
   }
   return hasil;
 }
