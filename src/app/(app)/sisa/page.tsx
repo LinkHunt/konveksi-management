@@ -77,7 +77,7 @@ export default async function SisaPage({
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <Ringkas label="Bahan keluar" nilai={totalBahan} />
         <Ringkas label="Setoran" nilai={totalSetor} />
-        <Ringkas label="Sisa" nilai={totalSisa} nada={totalSisa < 0 ? "bahaya" : "aksen"} />
+        <Ringkas label="Sisa" nilai={totalSisa} nada={totalSisa < 0 ? "peringatan" : "aksen"} />
       </div>
 
       {perPenjahit.some((g) => g.adaLebih) ? (
@@ -106,7 +106,7 @@ export default async function SisaPage({
                 <h2 className="text-base font-semibold">{g.penjahit.nama}</h2>
                 <p className="text-sm text-teks-lembut">
                   sisa{" "}
-                  <span className={g.totalSisa < 0 ? "font-semibold text-bahaya" : "font-semibold text-teks"}>
+                  <span className={g.totalSisa < 0 ? "font-semibold text-peringatan" : "font-semibold text-teks"}>
                     {g.totalSisa}
                   </span>{" "}
                   dari {g.totalBahanKeluar} pcs bahan keluar
@@ -154,7 +154,7 @@ export default async function SisaPage({
                                   sisaUkuran === null
                                     ? "text-teks-sangat-lembut"
                                     : sisaUkuran < 0
-                                      ? "font-semibold text-bahaya"
+                                      ? "font-semibold text-peringatan"
                                       : sisaUkuran > 0
                                         ? "font-medium text-teks"
                                         : "text-teks-sangat-lembut"
@@ -201,14 +201,14 @@ function Ringkas({
 }: {
   label: string;
   nilai: number;
-  nada?: "aksen" | "bahaya";
+  nada?: "aksen" | "peringatan";
 }) {
   return (
     <Card>
       <p className="text-sm text-teks-lembut">{label}</p>
       <p
         className={`mt-1 text-2xl font-semibold tabular-nums ${
-          nada === "bahaya" ? "text-bahaya" : nada === "aksen" ? "text-aksen" : ""
+          nada === "peringatan" ? "text-peringatan" : nada === "aksen" ? "text-aksen" : ""
         }`}
       >
         {nilai}

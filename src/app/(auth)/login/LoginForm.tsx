@@ -3,6 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
+const DASAR =
+  "rounded-lg border border-garis-kuat bg-permukaan px-3 py-2.5 text-base text-teks outline-none transition-colors placeholder:text-teks-sangat-lembut focus:border-aksen focus:ring-2 focus:ring-aksen-lembut";
+
 export default function LoginForm() {
   const router = useRouter();
   const [username, setUsername] = useState("");
@@ -36,8 +39,24 @@ export default function LoginForm() {
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center px-4 py-10">
-      <h1 className="mb-1 text-2xl font-semibold">Management Konveksi</h1>
-      <p className="mb-6 text-sm text-neutral-500">Masuk untuk melanjutkan.</p>
+      <div className="mb-6">
+        <span className="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-aksen text-white">
+          <svg
+            viewBox="0 0 24 24"
+            className="h-6 w-6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M6 3 3 6l6 6 3-3m6 0 3 3-6 6-3-3m0 0-6 6M9 15l6-6" />
+          </svg>
+        </span>
+        <h1 className="text-2xl font-semibold tracking-tight">Management Konveksi</h1>
+        <p className="mt-0.5 text-sm text-teks-lembut">Masuk untuk melanjutkan.</p>
+      </div>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-sm">
@@ -50,7 +69,7 @@ export default function LoginForm() {
             autoCapitalize="none"
             autoCorrect="off"
             required
-            className="rounded-lg border border-neutral-300 px-3 py-2.5 text-base outline-none focus:border-neutral-900"
+            className={DASAR}
           />
         </label>
 
@@ -63,12 +82,12 @@ export default function LoginForm() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
             required
-            className="rounded-lg border border-neutral-300 px-3 py-2.5 text-base outline-none focus:border-neutral-900"
+            className={DASAR}
           />
         </label>
 
         {error ? (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="rounded-lg bg-bahaya-lembut px-3 py-2.5 text-sm text-bahaya">
             {error}
           </p>
         ) : null}
@@ -76,7 +95,7 @@ export default function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className="mt-1 rounded-lg bg-neutral-900 px-3 py-2.5 text-base font-medium text-white disabled:opacity-60"
+          className="mt-1 rounded-lg bg-aksen px-3 py-3 text-base font-medium text-white transition-colors hover:bg-aksen-gelap disabled:opacity-60"
         >
           {loading ? "Memproses..." : "Masuk"}
         </button>

@@ -22,9 +22,9 @@ export default function LogoutButton() {
       type="button"
       onClick={logout}
       disabled={loading}
-      className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-60"
+      className="w-full rounded-lg border border-garis-kuat px-3 py-2 text-sm text-teks-lembut transition-colors hover:bg-permukaan-2 disabled:opacity-60"
     >
-      {loading ? "..." : "Keluar"}
+      {loading ? "Keluar..." : "Keluar"}
     </button>
   );
 }

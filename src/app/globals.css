@@ -3,35 +3,39 @@
 /*
  * Token warna.
  *
- * Aksen biru sengaja dibuat soft (#3b6fd4 dk): biru saturated seperti
- * #2563eb pada layar putih berat dibaca dan cepat bikin capek kalau formnya
- * panjang. Aksen dipakai HANYA untuk aksi utama dan link, bukan untuk
- * dekorasi, supaya halaman tetap tenang.
+ * Aksen hijau toska (#0d9488) dipakai untuk app bar, aksi utama, dan link.
+ * Latar diberi sedikit tint toska supaya halaman tidak terasa polos putih
+ * seperti dokumen cetak, dan teks utama memakai navy (#1e3a5f) yang lebih
+ * hangat dan enak dibaca lama daripada hitam penuh.
+ *
+ * Aksen dipakai untuk aksi utama dan link saja, bukan dekorasi, supaya
+ * halaman tetap tenang. Oranye (#ea580c) khusus untuk sisa negatif.
  *
  * Font memakai Geist (dari next/font) supaya tidak perlu request ke Google dan
  * tidak ada layout shift saat halaman dimuat.
  */
 
 :root {
-	--latar: #ffffff;
+	--latar: #f4f8f8;
 	--permukaan: #ffffff;
-	--permukaan-2: #f7f8fa;
-	--garis: #e5e7eb;
-	--garis-kuat: #d1d5db;
-	--teks: #171717;
-	--teks-lembut: #6b7280;
-	--teks-sangat-lembut: #9ca3af;
+	--permukaan-2: #eef4f4;
+	--garis: #dfe9e8;
+	--garis-kuat: #c8d9d8;
 
-	--aksen: #3b6fd4;
-	--aksen-gelap: #2f59ad;
-	--aksen-lembut: #eef3fc;
-	--aksen-garis: #cfdcf5;
+	--teks: #1e3a5f;
+	--teks-lembut: #5b7186;
+	--teks-sangat-lembut: #90a2af;
 
-	--sukses: #2f7d5c;
-	--sukses-lembut: #edf7f2;
-	--peringatan: #a8681b;
-	--peringatan-lembut: #fdf5e9;
-	--bahaya: #b8403a;
+	--aksen: #0d9488;
+	--aksen-gelap: #0a756b;
+	--aksen-lembut: #f0fdfa;
+	--aksen-garis: #b6e5df;
+
+	--sukses: #15803d;
+	--sukses-lembut: #eefaf1;
+	--peringatan: #ea580c;
+	--peringatan-lembut: #fff4ea;
+	--bahaya: #c0392b;
 	--bahaya-lembut: #fdf0ef;
 }
 
@@ -84,6 +88,15 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
 	-moz-appearance: textfield;
 	appearance: textfield;
+}
+
+/* Drawer mengikuti posisi jari, jadi transisinya dimatikan selama drag
+   supaya panelnya nempel ke jari, bukan tertinggal. */
+.geser-panel {
+	transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.geser-panel.tarik {
+	transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
