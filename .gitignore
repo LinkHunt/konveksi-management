@@ -10,3 +10,4 @@ dist
 !.dev.vars.example
 *.tsbuildinfo
 package.patch*.py
+.open-next
