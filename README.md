@@ -381,18 +381,86 @@ git push
 Karena tidak ada laptop, jalur yang dipilih adalah **deploy otomatis dari GitHub**:
 
 1. Di dashboard Cloudflare (bisa dibuka dari browser HP): Workers & Pages, buat project baru dari Git, pilih repo privat.
-2. Isi `DATABASE_URL` (versi pooled) sebagai variabel lingkungan di Cloudflare.
+2. Isi `DATABASE_URL` (versi pooled) **dan** `SESSION_SECRET` sebagai variabel lingkungan / secret di Cloudflare. Dua-duanya wajib: tanpa `SESSION_SECRET` proses login tidak bisa menandatangani cookie.
 3. Perintah build dan deploy mengikuti script `deploy` di `package.json`, yaitu `opennextjs-cloudflare build && opennextjs-cloudflare deploy` menurut dokumentasi OpenNext.
 4. Setiap `git push` ke branch utama men-deploy ulang.
 
+Sebelum deploy, pastikan `prisma generate` sudah dijalankan dengan `engineType = "client"` aktif (lihat §11). Kalau lupa, worker akan gagal saat query pertama dengan pesan `could not locate the Query Engine`.
+
 Catatan: login `wrangler` dari terminal Codespace biasanya bermasalah karena proses login memakai alamat localhost. Alternatifnya memakai API token Cloudflare lewat variabel lingkungan (cek dokumen Wrangler untuk detail).
+
+Status deploy nyata: **belum pernah dijalankan**. Semua yang sudah terverifikasi (§14) hanya di workerd lokal lewat `npm run preview`, bukan di worker yang sudah online.
 
 ## 11. Batasan penting di Cloudflare Workers
 
-- **Jangan membuat `middleware.ts`.** Middleware Node.js belum didukung adapter. Pengecekan login dilakukan di `src/app/(app)/layout.tsx` atau di tiap route handler.
+- **Jangan membuat `middleware.ts`.** Middleware Node.js belum didukung adapter. Pengecekan login dilakukan di layout `(app)` atau di tiap route handler.
 - **Jangan memakai edge runtime** (`export const runtime = 'edge'`) di route mana pun. Adapter hanya mendukung runtime Node.
 - **Prisma harus lewat driver adapter** (`@prisma/adapter-neon`) di Workers.
 - Koneksi runtime memakai string **pooled** (`-pooler`), migrasi memakai **direct**.
+
+### Konfigurasi wajib Prisma di Workers
+
+Tiga hal ini sudah terverifikasi jalan di runtime Workers lokal (lihat §12):
+
+| Yang harus ada | Isinya | Kenapa wajib |
+|---|---|---|
+| `prisma/schema.prisma` | `engineType = "client"` di blok generator | Tanpa itu Prisma memuat query engine native `.node`, mustahil di workerd. Dengan `engineType = "client"` Prisma memakai WASM query compiler |
+| `next.config.ts` | `output: "standalone"` | Tanpa ini `next build` dan OpenNext tidak menghasilkan `.next/standalone` |
+| `next.config.ts` | `serverExternalPackages: ["@prisma/client", ".prisma/client"]` | Memastikan paket Prisma ikut ter-bundle ke dalam worker |
+
+Contoh blok generator:
+
+```prisma
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "client"
+}
+```
+
+Contoh config Next.js:
+
+```ts
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  output: "standalone",
+  serverExternalPackages: ["@prisma/client", ".prisma/client"],
+};
+
+export default nextConfig;
+```
+
+### Yang ternyata TIDAK diperlukan
+
+Tiga hal ini sempat dicoba karena muncul di dokumentasi, tapi lewat uji pembalik (cabut lalu tes ulang) ketahuan tidak dibutuhkan. Jangan ditambahkan:
+
+| Config | Hasil uji |
+|---|---|
+| `compatibility_flags: ["nodejs_compat"]` di `wrangler.jsonc` | Cabut, semua endpoint tetap 200. Diperlukan hanya kalau memakai adapter berbasis `pg`, bukan `@prisma/adapter-neon` |
+| `previewFeatures = ["driverAdapters"]` | Deprecated di Prisma 6.19.3 (`prisma validate` memberi warning). Driver adapter sudah GA |
+| Env var `PRISMA_CLIENT_FORCE_WASM=1` | Cabut dari `.dev.vars`, semua endpoint tetap 200 |
+
+### Variabel lokal untuk preview
+
+Preview OpenNext memakai workerd lokal dan membaca rahasia dari **`.dev.vars`**, bukan `.env`:
+
+```
+# .dev.vars - JANGAN di-commit, sudah tercakup .gitignore
+DATABASE_URL="postgresql://...-pooler...:5432/neondb"
+SESSION_SECRET="..."
+```
+
+`.dev.vars` sudah ter-ignore git lewat baris `.dev.vars*` di `.gitignore`. Perintah untuk menjalankan:
+
+```
+npm run preview      # opennextjs-cloudflare build && opennextjs-cloudflare preview
+```
+
+Lalu tes dari port **8787** (bukan 3000):
+
+```
+curl http://localhost:8787/api/health
+```
 
 ## 12. Status progres
 
@@ -419,11 +487,15 @@ Catatan: login `wrangler` dari terminal Codespace biasanya bermasalah karena pro
 | **Rename boss menjadi pemilik** | **Selesai**. Skema, kolom, path API, dan field JSON. Migrasi `20261004222722_rename_boss_to_pemilik`. Commit `4f56a26` |
 | **Smoke test API** | **Selesai**. 91 pemeriksaan, semuanya lulus. `scripts/smoke-test.sh`. Commit `22ffde8` |
 | **Dokumentasi kontrak API** | **Selesai**. `docs/API.md`. Commit `a73b6d3` |
-| Verifikasi `npx tsc --noEmit` dan `npx eslint .` | 0 error, dicek 2026-10-05 |
+| Verifikasi `npx tsc --noEmit` | 0 error, dicek ulang 2026-10-05 setelah perubahan Workers |
+| Verifikasi `npx eslint .` | 0 error dicek 2026-10-05 pagi. Sore hari proses lint timeout di Codespace sehingga tidak diulang. Perubahan hari ini hanya 2 file config, keduanya bukan TypeScript |
 | Verifikasi database bersih setelah smoke test | Semua tabel master dan transaksi berisi 0 baris, `User` 1 baris |
 | **Commit seluruh backend** | **Sudah di-push** ke `origin/main` (`5482c2c..a73b6d3`) |
 | Halaman UI selain login | **Placeholder semua**. Folder dan file `src/components/` sudah ada tapi isinya masih stub, tinggal diisi |
-| Deploy ke Cloudflare | Belum |
+| **Uji di runtime Workers lokal (OpenNext)** | **Selesai 2026-10-05**. `GET /api/health` 200, `POST /api/auth/login` 200 dengan cookie, endpoint master/transaksi/sisa semua 200, auth guard 401, logout 200. Jalur di `npm run preview` (workerd lokal port 8787). Detail hasil uji di §14 |
+| **PBKDF2 210.000 iterasi di Workers** | **Terverifikasi aman**. Diuji 3x: 27-29 ms, tidak ada error, tidak mendekati batas CPU. Klaim batas 100.000 iterasi **tidak terbukti benar**. `auth-password.ts` tidak diubah |
+| **Konfigurasi Workers di `next.config.ts` dan `schema.prisma`** | **Selesai**. `engineType = "client"`, `output: "standalone"`, `serverExternalPackages: ["@prisma/client", ".prisma/client"]`. `wrangler.jsonc` tidak perlu diubah |
+| Deploy ke Cloudflare | **Belum**. Yang sudah selesai baru uji lokal di workerd |
 
 ## 13. Rencana tahapan pengerjaan
 
@@ -458,6 +530,71 @@ Masalah yang muncul saat mengerjakan API lewat SSH (semua sudah selesai):
 | "Another next dev server is already running" | Dua `next dev` di directory yang sama ditolak Next.js | Tidak bisa pakai port alternatif untuk tes. Matikan server lama dulu |
 | Koneksi SSH ikut mati saat `pkill -f 'next-server'` | Pola `pkill` ikut cocok dengan string perintah shell itu sendiri, dan tmux server ikut ikut mati | Pakai `tmux kill-session -t <nama>`, atau kill per PID |
 
+### Masalah saat menyiapkan Cloudflare Workers (OpenNext), 2026-10-05
+
+Semuanya sudah teratasi. Tabel ini berisi temuan nyata dari menjalankan preview OpenNext di workerd lokal.
+
+| Gejala | Penyebab | Solusi |
+|---|---|---|
+| `/api/health` balas 503, log Prisma: `could not locate the Query Engine for runtime "debian-openssl-1.1.x". This happened because Prisma Client was generated for "debian-openssl-3.0.x"` | Prisma memakai query engine native `.node` (16,7 MB). Binary native mustahil dimuat di workerd | Tambah `engineType = "client"` di blok generator `schema.prisma`, lalu `npx prisma generate`. Prisma lalu memakai WASM query compiler |
+| `/api/health` balas 503, log Prisma: `no such file or directory, readAll '/bundle/node_modules/.prisma/client/query_compiler_bg.wasm'` | Prisma sudah mau pakai WASM tapi memuat file `.wasm` lewat `fs.readFileSync`. Workers tidak punya filesystem sungguhan | `output: "standalone"` di `next.config.ts`. Setelah itu OpenNext membundel file wasm sebagai modul, bukan file mentah |
+| `next build` keluar `Segmentation fault (core dumped)` di tahap "Running TypeScript" | `serverExternalPackages` menunjuk ke `.prisma/client` yang berisi `.node` 16,7 MB. Turbopack ikut memuat native binding dan crash | Tetap dipakai, tapi pastikan `output: "standalone"` juga ada. Setelah `output: "standalone"` ditambahkan, Turbopack tidak lagi crash. Build dengan `--webpack` juga berhasil, tapi tidak wajib |
+| `npx opennextjs-cloudflare build --skipNextBuild` gagal: `ENOENT ... .next/standalone/.next/server/pages-manifest.json` | `output: "standalone"` belum diset, jadi `.next/standalone` tidak pernah dibuat | Set `output: "standalone"` di `next.config.ts` |
+| Rute diagnosti `/api/_probe` selalu 404 dan tidak muncul di bundle | Next.js memperlakukan folder berawalan `_` sebagai private folder dan mengecualikannya dari routing | Jangan pakai prefiks `_` untuk route. Nama yang dipakai di sesi ini: `src/app/api/zzprobe/route.ts` (sudah dihapus) |
+| `npx opennextjs-cloudflare preview` tidak jalan karena env tidak terbaca | Preview memakai workerd lokal yang membaca `.dev.vars`, bukan `.env` | Buat `.dev.vars` berisi `DATABASE_URL` (pooled) dan `SESSION_SECRET`. Sudah ter-ignore git |
+| `prisma validate` memberi warning `Preview feature "driverAdapters" is deprecated` | Di Prisma 6.19.3 driver adapter sudah GA, tidak perlu preview feature lagi | Hapus `previewFeatures` dari blok generator. Dokumentasi OpenNext masih menyebutnya, jadi halaman itu belum sinkron |
+
+### Hasil uji runtime Workers lokal (port 8787)
+
+Semua di bawah ini dijalankan lewat `npx opennextjs-cloudflare preview` (workerd lokal), bukan `next dev`:
+
+| Yang diuji | Hasil |
+|---|---|
+| `GET /api/health` | `200` `{"ok":true}` |
+| `POST /api/auth/login` | `200`, cookie sesi terbit, sekitar 120-160 ms |
+| `GET /api/master/pemilik`, `model?semua=1`, `penjahit`, `warna` | Semua `200` |
+| `GET /api/master/ngawur` | `404` `{"error":"Jenis data tidak dikenal."}` |
+| `GET /api/master/pemilik` tanpa cookie | `401` `{"error":"Belum login."}` |
+| `GET /api/transaksi?limit=5` dan filter `jenis` | `200` |
+| `GET /api/sisa` | `200`, perhitungan benar (sisa negatif + `lebih: true`) |
+| `GET /api/sisa?penjahitId=abc` | `400` `{"error":"Parameter penjahitId harus angka bulat."}` |
+| `POST /api/auth/logout` lalu akses lagi | `200` lalu `401` |
+
+### PBKDF2 di Workers: 210.000 iterasi aman
+
+Dulu ada kekhawatiran bahwa Workers membatasi PBKDF2 maksimal 100.000 iterasi. **Tidak terbukti benar.** Diuji langsung lewat route yang hanya memanggil `crypto.subtle.deriveBits`, tiga kali masing-masing:
+
+| Iterasi | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| 210.000 | 29 ms | 27 ms | 28 ms |
+| 100.000 | 19 ms | 14 ms | 13 ms |
+
+Keduanya berhasil, tidak ada error dan tidak mendekati batas CPU. Rasio ~2:1 sesuai proporsional. Kesimpulan: **210.000 iterasi tidak perlu diturunkan**, `src/lib/auth-password.ts` tidak diubah, dan tidak ada hash yang perlu dibuat ulang.
+
+Login end-to-end (hash + verify) di workerd juga berhasil pada iterasi 210.000, sekitar 120-160 ms per request.
+
+### Uji pembalik: config yang ternyata tidak perlu
+
+Tiga konfigurasi ini sempat dicoba, lalu dicabut dan dites ulang. Semua tetap `200`, jadi tidak diperlukan:
+
+| Config | Hasil setelah dicabut |
+|---|---|
+| `compatibility_flags: ["nodejs_compat"]` di `wrangler.jsonc` | `/api/health` 200, login 200, transaksi 200, sisa 200 |
+| `previewFeatures = ["driverAdapters"]` | Deprecated di 6.19.3 (lihat tabel di atas) |
+| Env var `PRISMA_CLIENT_FORCE_WASM=1` di `.dev.vars` | `/api/health` 200, login 200, transaksi 200, sisa 200 |
+
+Satu-satunya tambahan yang benar-benar wajib adalah `engineType = "client"`, `output: "standalone"`, dan `serverExternalPackages`.
+
+### Urutan kerja yang benar saat prepare Workers
+
+```
+rm -rf .next .open-next node_modules/.prisma
+npx prisma generate
+npm run preview
+```
+
+`prisma generate` harus dijalankan ulang setiap kali `schema.prisma` berubah, karena OpenNext menyalin `node_modules/.prisma/client` apa adanya ke dalam output build.
+
 Kemungkinan error lain:
 
 | Gejala | Solusi |
@@ -479,13 +616,16 @@ Kemungkinan error lain:
 
 ## 16. Hal yang belum diverifikasi
 
+
 Beberapa poin berikut berasal dari pengetahuan umum dan belum dikonfirmasi di dokumentasi resmi atau lewat percobaan langsung. Cek sebelum diandalkan:
 
-- Penggunaan koneksi direct untuk migrasi dan pooled untuk runtime di **Workers** secara persis, sesuai panduan Neon. Di Codespaces sudah terbukti jalan, tapi belum dicoba di Workers.
+
+- Penggunaan koneksi pooled untuk runtime di **Workers produksi**. Sudah terbukti jalan di workerd lokal (`npm run preview`), tapi belum dicoba di Workers sungguhan yang deploy ke internet.
 - Cara login Wrangler dengan API token dari lingkungan remote tanpa browser.
-- Detail variabel lingkungan dan perintah build di Workers Builds untuk adapter OpenNext.
+- Detail variabel lingkungan dan perintah build di Workers Builds untuk adapter OpenNext, kalau nanti pakai auto-deploy dari GitHub.
+- Batas ukuran worker. Dokumentasi Prisma menyebut free plan punya batas 3 MB. Perlu cek ukuran bundle setelah `opennextjs-cloudflare build` kalau akan deploy di plan gratis.
 - Kematangan dan kompatibilitas **vinext** dibanding OpenNext.
 - Syarat pemakaian komersial tier gratis Neon dan Cloudflare secara spesifik (hanya dibaca dari ulasan pihak ketiga, bukan syarat resmi).
 - Batas 2 akun. Kalau nanti butuh lebih banyak, `prisma/schema.prisma` dan halaman login perlu diubah.
 
-Pola `getDb()` yang membuat Prisma client baru tiap pemanggilan **sudah** terbukti jalan di Codespaces, tapi belum pernah dijalankan di Workers.
+Pola `getDb()` yang membuat Prisma client baru tiap pemanggilan **sudah** terbukti jalan di Codespaces (Node) maupun di workerd lokal (Workers runtime), keduanya dicek 2026-10-05.
