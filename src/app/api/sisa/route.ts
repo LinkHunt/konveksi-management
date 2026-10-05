@@ -1,10 +1,10 @@
 // GET /api/sisa
 //
-// Sisa belum disetor per penjahit + boss + model + warna + ukuran.
+// Sisa belum disetor per penjahit + pemilik + model + warna + ukuran.
 // Dihitung di database, tidak disimpan.
 //
 // Query:
-//   penjahitId, bossId, modelId, warnaId  -> filter opsional
+//   penjahitId, pemilikId, modelId, warnaId  -> filter opsional
 //   sembunyikanNol=1                     -> buang baris sisa tepat 0 (default: ya)
 //   sembunyikanNol=0                     -> tampilkan juga baris sisa tepat 0
 //
@@ -24,8 +24,8 @@ export async function GET(request: Request) {
     const filter: FilterSisa = {};
     const penjahitId = intParam(url, "penjahitId", { min: 1 });
     if (penjahitId !== undefined) filter.penjahitId = penjahitId;
-    const bossId = intParam(url, "bossId", { min: 1 });
-    if (bossId !== undefined) filter.bossId = bossId;
+    const pemilikId = intParam(url, "pemilikId", { min: 1 });
+    if (pemilikId !== undefined) filter.pemilikId = pemilikId;
     const modelId = intParam(url, "modelId", { min: 1 });
     if (modelId !== undefined) filter.modelId = modelId;
     const warnaId = intParam(url, "warnaId", { min: 1 });

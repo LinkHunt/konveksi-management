@@ -13,19 +13,19 @@ const namaWajib = z
   .max(120, "Nama maksimal 120 karakter.");
 
 export const masterSchema = {
-  boss: z.object({ nama: namaWajib, aktif: z.boolean().optional() }),
+  pemilik: z.object({ nama: namaWajib, aktif: z.boolean().optional() }),
   warna: z.object({ nama: namaWajib, aktif: z.boolean().optional() }),
   penjahit: z.object({ nama: namaWajib, aktif: z.boolean().optional() }),
   model: z.object({
     nama: namaWajib,
-    bossId: z.number({ message: "Boss wajib dipilih." }).int().positive("Boss tidak valid."),
+    pemilikId: z.number({ message: "Pemilik wajib dipilih." }).int().positive("Pemilik tidak valid."),
     aktif: z.boolean().optional(),
   }),
 } as const;
 
 export type MasterEntity = keyof typeof masterSchema;
 
-export const MASTER_ENTITIES: MasterEntity[] = ["boss", "model", "warna", "penjahit"];
+export const MASTER_ENTITIES: MasterEntity[] = ["pemilik", "model", "warna", "penjahit"];
 
 export function isMasterEntity(value: string): value is MasterEntity {
   return (MASTER_ENTITIES as string[]).includes(value);
@@ -33,12 +33,12 @@ export function isMasterEntity(value: string): value is MasterEntity {
 
 /** Field yang boleh diubah lewat PATCH. */
 export const masterPatchSchema = {
-  boss: z.object({ nama: namaWajib.optional(), aktif: z.boolean().optional() }),
+  pemilik: z.object({ nama: namaWajib.optional(), aktif: z.boolean().optional() }),
   warna: z.object({ nama: namaWajib.optional(), aktif: z.boolean().optional() }),
   penjahit: z.object({ nama: namaWajib.optional(), aktif: z.boolean().optional() }),
   model: z.object({
     nama: namaWajib.optional(),
-    bossId: z.number().int().positive("Boss tidak valid.").optional(),
+    pemilikId: z.number().int().positive("Pemilik tidak valid.").optional(),
     aktif: z.boolean().optional(),
   }),
 } as const;

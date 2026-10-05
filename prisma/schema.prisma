@@ -40,8 +40,8 @@ model User {
   createdAt    DateTime @default(now())
 }
 
-// Boss = pemilik baju
-model Boss {
+// Pemilik = pemilik baju
+model Pemilik {
   id     Int         @id @default(autoincrement())
   nama   String      @unique
   aktif  Boolean     @default(true)
@@ -51,12 +51,12 @@ model Boss {
 model ModelBaju {
   id         Int         @id @default(autoincrement())
   nama       String
-  bossId     Int
-  boss       Boss        @relation(fields: [bossId], references: [id])
+  pemilikId  Int
+  pemilik    Pemilik     @relation(fields: [pemilikId], references: [id])
   aktif      Boolean     @default(true)
   transaksi  Transaksi[]
 
-  @@unique([bossId, nama])
+  @@unique([pemilikId, nama])
 }
 
 model Warna {

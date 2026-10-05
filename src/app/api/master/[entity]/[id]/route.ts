@@ -11,7 +11,7 @@ import {
   LABEL_ENTITY,
   ambil,
   getNama,
-  hasBossId,
+  hasPemilikId,
   isMasterEntity,
   jumlahTransaksiMemakai,
   masterSedangDipakai,
@@ -49,10 +49,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
     const body = parseMasterPatch(entity, await readJson(request));
     const db = getDb();
 
-    if (entity === "model" && hasBossId(body) && body.bossId !== undefined) {
-      const boss = await db.boss.findUnique({ where: { id: body.bossId } });
-      if (!boss) throw badRequest("Boss tidak ditemukan.");
-      if (!boss.aktif) throw badRequest("Boss yang dipilih sudah nonaktif.");
+    if (entity === "model" && hasPemilikId(body) && body.pemilikId !== undefined) {
+      const pemilik = await db.pemilik.findUnique({ where: { id: body.pemilikId } });
+      if (!pemilik) throw badRequest("Pemilik tidak ditemukan.");
+      if (!pemilik.aktif) throw badRequest("Pemilik yang dipilih sudah nonaktif.");
     }
 
     const sekarang = await ambil(db, entity, id);
@@ -69,19 +69,19 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
     const namaBaru = getNama(body);
     if (namaBaru !== undefined && namaBaru !== sekarang.nama) {
-      // Untuk entity model, duplikat dilihat dari kombinasi bossId + nama.
-      const bossIdSekarang = "bossId" in sekarang ? sekarang.bossId : undefined;
-      const bossIdBaru = hasBossId(body) ? body.bossId : bossIdSekarang;
-      if (await namaSudahDipakai(db, entity, namaBaru, { bossId: bossIdBaru, excludeId: id })) {
+      // Untuk entity model, duplikat dilihat dari kombinasi pemilikId + nama.
+      const pemilikIdSekarang = "pemilikId" in sekarang ? sekarang.pemilikId : undefined;
+      const pemilikIdBaru = hasPemilikId(body) ? body.pemilikId : pemilikIdSekarang;
+      if (await namaSudahDipakai(db, entity, namaBaru, { pemilikId: pemilikIdBaru, excludeId: id })) {
         throw conflict(pesanDuplikat(entity, namaBaru));
       }
     }
 
-    const data: { nama?: string; aktif?: boolean; bossId?: number } = {};
+    const data: { nama?: string; aktif?: boolean; pemilikId?: number } = {};
     if (namaBaru !== undefined) data.nama = namaBaru;
     if (body.aktif !== undefined) data.aktif = body.aktif;
-    if (entity === "model" && hasBossId(body) && body.bossId !== undefined) {
-      data.bossId = body.bossId;
+    if (entity === "model" && hasPemilikId(body) && body.pemilikId !== undefined) {
+      data.pemilikId = body.pemilikId;
     }
 
     try {

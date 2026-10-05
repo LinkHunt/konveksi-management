@@ -1,7 +1,7 @@
 // GET  /api/master/{entity}  -> daftar master
 // POST /api/master/{entity}  -> buat master baru
 //
-// entity harus salah satu dari: boss, model, warna, penjahit. Selain itu 404.
+// entity harus salah satu dari: pemilik, model, warna, penjahit. Selain itu 404.
 // Tanpa DELETE: data dinonaktifkan lewat PATCH supaya riwayat transaksi utuh.
 
 import { getDb } from "@/lib/db";
@@ -11,7 +11,7 @@ import {
   buat,
   daftar,
   getNama,
-  hasBossId,
+  hasPemilikId,
   isMasterEntity,
   namaSudahDipakai,
   parseMasterCreate,
@@ -44,15 +44,15 @@ export async function POST(request: Request, { params }: Ctx) {
     const nama = getNama(body)!;
     const db = getDb();
 
-    if (entity === "model" && hasBossId(body)) {
-      const boss = await db.boss.findUnique({ where: { id: body.bossId } });
-      if (!boss) throw badRequest("Boss tidak ditemukan.");
-      if (!boss.aktif) throw badRequest("Boss yang dipilih sudah nonaktif.");
+    if (entity === "model" && hasPemilikId(body)) {
+      const pemilik = await db.pemilik.findUnique({ where: { id: body.pemilikId } });
+      if (!pemilik) throw badRequest("Pemilik tidak ditemukan.");
+      if (!pemilik.aktif) throw badRequest("Pemilik yang dipilih sudah nonaktif.");
     }
 
     // Pengecekan duplikat insensitive huruf: pesan 409 yang jelas dan deterministik,
     // tidak bergantung pada pesan error database.
-    if (await namaSudahDipakai(db, entity, nama, { bossId: hasBossId(body) ? body.bossId : undefined })) {
+    if (await namaSudahDipakai(db, entity, nama, { pemilikId: hasPemilikId(body) ? body.pemilikId : undefined })) {
       throw conflict(pesanDuplikat(entity, nama));
     }
 

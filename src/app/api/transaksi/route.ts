@@ -41,8 +41,8 @@ export async function GET(request: Request) {
     const modelId = intParam(url, "modelId", { min: 1 });
     if (modelId !== undefined) where.modelId = modelId;
 
-    const bossId = intParam(url, "bossId", { min: 1 });
-    if (bossId !== undefined) where.model = { bossId };
+    const pemilikId = intParam(url, "pemilikId", { min: 1 });
+    if (pemilikId !== undefined) where.model = { pemilikId };
 
     // Rentang tanggal. Kolomnya DATE, jadi batas bawah inklusif dan batas atas
     // juga inklusif (tanggal yang sama masih dihitung).

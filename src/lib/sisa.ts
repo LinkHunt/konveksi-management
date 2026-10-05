@@ -1,7 +1,7 @@
 // Query sisa belum disetor.
 //
 // sisa = SUM(BAHAN_KELUAR) - SUM(SETORAN), dikelompokkan per
-// penjahit + boss + model + warna + ukuran.
+// penjahit + pemilik + model + warna + ukuran.
 //
 // Dihitung di database dengan satu query agregasi (bukan menarik semua baris ke
 // aplikasi), dan hasilnya TIDAK disimpan di tabel mana pun.
@@ -20,8 +20,8 @@ import { UKURAN_LIST, type UkuranLabel } from "./ukuran";
 export type BarisSisa = {
   penjahitId: number;
   penjahitNama: string;
-  bossId: number;
-  bossNama: string;
+  pemilikId: number;
+  pemilikNama: string;
   modelId: number;
   modelNama: string;
   warnaId: number;
@@ -44,7 +44,7 @@ export type SisaPerPenjahit = {
 
 export type FilterSisa = {
   penjahitId?: number;
-  bossId?: number;
+  pemilikId?: number;
   modelId?: number;
   warnaId?: number;
 };
@@ -52,8 +52,8 @@ export type FilterSisa = {
 type RawRow = {
   penjahitId: number;
   penjahitNama: string;
-  bossId: number;
-  bossNama: string;
+  pemilikId: number;
+  pemilikNama: string;
   modelId: number;
   modelNama: string;
   warnaId: number;
@@ -83,8 +83,8 @@ export async function hitungSisa(
     SELECT
       t."penjahitId"     AS "penjahitId",
       pj."nama"          AS "penjahitNama",
-      m."bossId"         AS "bossId",
-      b."nama"           AS "bossNama",
+      m."pemilikId"      AS "pemilikId",
+      b."nama"           AS "pemilikNama",
       t."modelId"        AS "modelId",
       m."nama"           AS "modelNama",
       t."warnaId"        AS "warnaId",
@@ -96,14 +96,14 @@ export async function hitungSisa(
     JOIN "TransaksiItem" ti ON ti."transaksiId" = t."id"
     JOIN "Penjahit" pj ON pj."id" = t."penjahitId"
     JOIN "ModelBaju" m ON m."id" = t."modelId"
-    JOIN "Boss" b ON b."id" = m."bossId"
+    JOIN "Pemilik" b ON b."id" = m."pemilikId"
     JOIN "Warna" w ON w."id" = t."warnaId"
     WHERE
       (${filter.penjahitId ?? null}::int IS NULL OR t."penjahitId" = ${filter.penjahitId ?? null})
-      AND (${filter.bossId ?? null}::int IS NULL OR m."bossId" = ${filter.bossId ?? null})
+      AND (${filter.pemilikId ?? null}::int IS NULL OR m."pemilikId" = ${filter.pemilikId ?? null})
       AND (${filter.modelId ?? null}::int IS NULL OR t."modelId" = ${filter.modelId ?? null})
       AND (${filter.warnaId ?? null}::int IS NULL OR t."warnaId" = ${filter.warnaId ?? null})
-    GROUP BY t."penjahitId", pj."nama", m."bossId", b."nama", t."modelId", m."nama",
+    GROUP BY t."penjahitId", pj."nama", m."pemilikId", b."nama", t."modelId", m."nama",
              t."warnaId", w."nama", ti."ukuran"
   `) as unknown as RawRow[];
 
@@ -120,8 +120,8 @@ export async function hitungSisa(
       return {
         penjahitId: r.penjahitId,
         penjahitNama: r.penjahitNama,
-        bossId: r.bossId,
-        bossNama: r.bossNama,
+        pemilikId: r.pemilikId,
+        pemilikNama: r.pemilikNama,
         modelId: r.modelId,
         modelNama: r.modelNama,
         warnaId: r.warnaId,
@@ -136,7 +136,7 @@ export async function hitungSisa(
     .sort((a, b) => {
       const na = a.penjahitNama.localeCompare(b.penjahitNama, "id");
       if (na !== 0) return na;
-      const ba = a.bossNama.localeCompare(b.bossNama, "id");
+      const ba = a.pemilikNama.localeCompare(b.pemilikNama, "id");
       if (ba !== 0) return ba;
       const ma = a.modelNama.localeCompare(b.modelNama, "id");
       if (ma !== 0) return ma;

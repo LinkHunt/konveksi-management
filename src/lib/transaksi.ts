@@ -61,7 +61,7 @@ export function siapSimpan(payload: {
 
 /**
  * Pastikan penjahit, model, warna ada. Saat membuat, semuanya harus aktif
- * (beserta boss dari model). Saat PUT, master yang sudah nonaktif tetap boleh
+ * (beserta pemilik dari model). Saat PUT, master yang sudah nonaktif tetap boleh
  * dipakai selama nilainya tidak berubah, supaya koreksi transaksi lama tidak
  * tertolak hanya karena master-nya sudah dinonaktifkan.
  */
@@ -74,7 +74,7 @@ export async function pastikanMaster(
     db.penjahit.findUnique({ where: { id: ids.penjahitId }, select: { id: true, aktif: true } }),
     db.modelBaju.findUnique({
       where: { id: ids.modelId },
-      select: { id: true, aktif: true, boss: { select: { id: true, aktif: true } } },
+      select: { id: true, aktif: true, pemilik: { select: { id: true, aktif: true } } },
     }),
     db.warna.findUnique({ where: { id: ids.warnaId }, select: { id: true, aktif: true } }),
   ]);
@@ -88,7 +88,7 @@ export async function pastikanMaster(
   if (!penjahit.aktif) throw badRequest("Penjahit yang dipilih sudah nonaktif.");
   if (!model.aktif) throw badRequest("Model baju yang dipilih sudah nonaktif.");
   if (!warna.aktif) throw badRequest("Warna yang dipilih sudah nonaktif.");
-  if (!model.boss.aktif) throw badRequest("Boss dari model yang dipilih sudah nonaktif.");
+  if (!model.pemilik.aktif) throw badRequest("Pemilik dari model yang dipilih sudah nonaktif.");
 }
 
 export const SELECT_TRANSAKSI = {
@@ -98,7 +98,7 @@ export const SELECT_TRANSAKSI = {
   catatan: true,
   createdAt: true,
   penjahit: { select: { id: true, nama: true } },
-  model: { select: { id: true, nama: true, boss: { select: { id: true, nama: true } } } },
+  model: { select: { id: true, nama: true, pemilik: { select: { id: true, nama: true } } } },
   warna: { select: { id: true, nama: true } },
   items: { select: { ukuran: true, jumlah: true } },
 } as const satisfies Prisma.TransaksiSelect;
@@ -120,7 +120,7 @@ export function serialisasiTransaksi(t: BarisTransaksi) {
     jenis: t.jenis,
     catatan: t.catatan,
     penjahit: t.penjahit,
-    boss: t.model.boss,
+    pemilik: t.model.pemilik,
     model: { id: t.model.id, nama: t.model.nama },
     warna: t.warna,
     items,

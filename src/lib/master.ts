@@ -19,14 +19,14 @@ export type { MasterEntity };
 /** Bentuk hasil validasi, dipisah supaya TS tidak membentuk union yang ambigu. */
 export type MasterCreateBody =
   | { nama: string; aktif?: boolean }
-  | { nama: string; bossId: number; aktif?: boolean };
+  | { nama: string; pemilikId: number; aktif?: boolean };
 export type MasterPatchBody =
   | { nama?: string; aktif?: boolean }
-  | { nama?: string; bossId?: number; aktif?: boolean };
+  | { nama?: string; pemilikId?: number; aktif?: boolean };
 
 /** Nama entitas untuk pesan error. */
 export const LABEL_ENTITY: Record<MasterEntity, string> = {
-  boss: "Boss",
+  pemilik: "Pemilik",
   model: "Model baju",
   warna: "Warna",
   penjahit: "Penjahit",
@@ -40,8 +40,8 @@ export function parseMasterPatch(entity: MasterEntity, body: unknown): MasterPat
   return masterPatchSchema[entity].parse(body) as MasterPatchBody;
 }
 
-export function hasBossId(b: MasterCreateBody | MasterPatchBody): b is { bossId?: number } {
-  return "bossId" in b && b.bossId !== undefined;
+export function hasPemilikId(b: MasterCreateBody | MasterPatchBody): b is { pemilikId?: number } {
+  return "pemilikId" in b && b.pemilikId !== undefined;
 }
 
 export function getNama(b: MasterCreateBody | MasterPatchBody): string | undefined {
@@ -56,20 +56,20 @@ export async function namaSudahDipakai(
   db: PrismaClient,
   entity: MasterEntity,
   nama: string,
-  opts: { bossId?: number; excludeId?: number } = {},
+  opts: { pemilikId?: number; excludeId?: number } = {},
 ): Promise<boolean> {
   const namaEq = { equals: nama, mode: "insensitive" as const };
   const bukanIni = opts.excludeId === undefined ? {} : { id: { not: opts.excludeId } };
 
   if (entity === "model") {
     const ada = await db.modelBaju.findFirst({
-      where: { nama: namaEq, bossId: opts.bossId, ...bukanIni },
+      where: { nama: namaEq, pemilikId: opts.pemilikId, ...bukanIni },
       select: { id: true },
     });
     return ada !== null;
   }
-  if (entity === "boss") {
-    return (await db.boss.findFirst({ where: { nama: namaEq, ...bukanIni } })) !== null;
+  if (entity === "pemilik") {
+    return (await db.pemilik.findFirst({ where: { nama: namaEq, ...bukanIni } })) !== null;
   }
   if (entity === "warna") {
     return (await db.warna.findFirst({ where: { nama: namaEq, ...bukanIni } })) !== null;
@@ -79,7 +79,7 @@ export async function namaSudahDipakai(
 
 export function pesanDuplikat(entity: MasterEntity, nama: string): string {
   return entity === "model"
-    ? `Model "${nama}" untuk boss tersebut sudah ada.`
+    ? `Model "${nama}" untuk pemilik tersebut sudah ada.`
     : `${LABEL_ENTITY[entity]} "${nama}" sudah ada.`;
 }
 
@@ -89,8 +89,8 @@ export async function jumlahTransaksiMemakai(
   entity: MasterEntity,
   id: number,
 ): Promise<number> {
-  if (entity === "boss") {
-    const models = await db.modelBaju.findMany({ where: { bossId: id }, select: { id: true } });
+  if (entity === "pemilik") {
+    const models = await db.modelBaju.findMany({ where: { pemilikId: id }, select: { id: true } });
     if (models.length === 0) return 0;
     return db.transaksi.count({ where: { modelId: { in: models.map((m) => m.id) } } });
   }
@@ -101,8 +101,8 @@ export async function jumlahTransaksiMemakai(
 
 /** Master yang dirujuk transaksi tidak boleh dinonaktifkan. */
 export function masterSedangDipakai(entity: MasterEntity): string {
-  return entity === "boss"
-    ? "Boss masih dipakai model baju yang dipakai transaksi."
+  return entity === "pemilik"
+    ? "Pemilik masih dipakai model baju yang dipakai transaksi."
     : `${LABEL_ENTITY[entity]} masih dipakai transaksi yang sudah tercatat.`;
 }
 
@@ -113,16 +113,16 @@ const SELECT_MODEL = {
   id: true,
   nama: true,
   aktif: true,
-  bossId: true,
-  boss: { select: { id: true, nama: true } },
+  pemilikId: true,
+  pemilik: { select: { id: true, nama: true } },
 } as const;
 
 export type BarisBasic = { id: number; nama: string; aktif: boolean };
-export type BarisModel = BarisBasic & { bossId: number; boss: { id: number; nama: string } };
+export type BarisModel = BarisBasic & { pemilikId: number; pemilik: { id: number; nama: string } };
 
 export function ambil(db: PrismaClient, entity: MasterEntity, id: number): Promise<BarisBasic | BarisModel | null> {
   if (entity === "model") return db.modelBaju.findUnique({ where: { id }, select: SELECT_MODEL });
-  if (entity === "boss") return db.boss.findUnique({ where: { id }, select: SELECT_BASIC });
+  if (entity === "pemilik") return db.pemilik.findUnique({ where: { id }, select: SELECT_BASIC });
   if (entity === "warna") return db.warna.findUnique({ where: { id }, select: SELECT_BASIC });
   return db.penjahit.findUnique({ where: { id }, select: SELECT_BASIC });
 }
@@ -135,7 +135,7 @@ export function daftar(
   if (entity === "model") {
     return db.modelBaju.findMany({ where, select: SELECT_MODEL, orderBy: { nama: "asc" } });
   }
-  if (entity === "boss") return db.boss.findMany({ where, select: SELECT_BASIC, orderBy: { nama: "asc" } });
+  if (entity === "pemilik") return db.pemilik.findMany({ where, select: SELECT_BASIC, orderBy: { nama: "asc" } });
   if (entity === "warna") return db.warna.findMany({ where, select: SELECT_BASIC, orderBy: { nama: "asc" } });
   return db.penjahit.findMany({ where, select: SELECT_BASIC, orderBy: { nama: "asc" } });
 }
@@ -148,11 +148,11 @@ export function buat(
   const aktif = (body as { aktif?: boolean }).aktif;
   const data = aktif === undefined ? {} : { aktif };
   if (entity === "model") {
-    const b = body as { nama: string; bossId: number };
-    return db.modelBaju.create({ data: { nama: b.nama, bossId: b.bossId, ...data }, select: SELECT_MODEL });
+    const b = body as { nama: string; pemilikId: number };
+    return db.modelBaju.create({ data: { nama: b.nama, pemilikId: b.pemilikId, ...data }, select: SELECT_MODEL });
   }
   const n = (body as { nama: string }).nama;
-  if (entity === "boss") return db.boss.create({ data: { nama: n, ...data }, select: SELECT_BASIC });
+  if (entity === "pemilik") return db.pemilik.create({ data: { nama: n, ...data }, select: SELECT_BASIC });
   if (entity === "warna") return db.warna.create({ data: { nama: n, ...data }, select: SELECT_BASIC });
   return db.penjahit.create({ data: { nama: n, ...data }, select: SELECT_BASIC });
 }
@@ -161,10 +161,10 @@ export function ubah(
   db: PrismaClient,
   entity: MasterEntity,
   id: number,
-  data: { nama?: string; aktif?: boolean; bossId?: number },
+  data: { nama?: string; aktif?: boolean; pemilikId?: number },
 ): Promise<BarisBasic | BarisModel> {
   if (entity === "model") return db.modelBaju.update({ where: { id }, data, select: SELECT_MODEL });
-  if (entity === "boss") return db.boss.update({ where: { id }, data, select: SELECT_BASIC });
+  if (entity === "pemilik") return db.pemilik.update({ where: { id }, data, select: SELECT_BASIC });
   if (entity === "warna") return db.warna.update({ where: { id }, data, select: SELECT_BASIC });
   return db.penjahit.update({ where: { id }, data, select: SELECT_BASIC });
 }
