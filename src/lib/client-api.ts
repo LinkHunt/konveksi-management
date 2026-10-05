@@ -93,3 +93,38 @@ export async function ambilMaster<T extends BarisBasic>(
   const r = await minta<{ data: T[] }>(`/api/master/${entity}${qs}`);
   return r.ok ? { ok: true as const, data: r.data.data } : r;
 }
+
+/*
+ * Sisa per penjahit, dipakai form setoran untuk mengisi sendiri.
+ *
+ * Tipe di sini sengaja dideklarasi ulang dan tidak diimpor dari `@/lib/sisa`,
+ * karena module itu mengimpor PrismaClient yang tidak boleh masuk bundle client.
+ * Yang ditulis hanya field yang memang dipakai form; TypeScript tetap menangkap
+ * kalau nama field di server berubah karena sisanya tidak ikut.
+ */
+
+export type BarisSisa = {
+  modelId: number;
+  warnaId: number;
+  ukuran: string;
+  sisa: number;
+  modelNama: string;
+  warnaNama: string;
+  pemilikNama: string;
+};
+
+export type SisaPenjahit = {
+  penjahit: { id: number; nama: string };
+  baris: BarisSisa[];
+};
+
+/**
+ * Sisa milik satu penjahit, termasuk baris sisa 0 supaya form bisa menampilkan
+ * kombinasi yang sudah lunas (dan menolak isi diam-diam tanpa sengaja).
+ */
+export async function ambilSisaPenjahit(penjahitId: number): Promise<Hasil<SisaPenjahit[]>> {
+  const r = await minta<{ data: SisaPenjahit[] }>(
+    `/api/sisa?penjahitId=${penjahitId}&sembunyikanNol=0`,
+  );
+  return r.ok ? { ok: true as const, data: r.data.data } : r;
+}

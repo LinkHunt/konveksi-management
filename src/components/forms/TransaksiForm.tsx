@@ -6,8 +6,17 @@ import { Button } from "@/components/ui/Button";
 import { Alert, Card } from "@/components/ui/Alert";
 import { Field, Input, Select, Textarea } from "@/components/ui/Input";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { buat, hapus, ubah, ambilMaster, type BarisBasic, type BarisModel } from "@/lib/client-api";
+import {
+  buat,
+  hapus,
+  ubah,
+  ambilMaster,
+  ambilSisaPenjahit,
+  type BarisBasic,
+  type BarisModel,
+} from "@/lib/client-api";
 import UkuranTable, { kosongkan, totalPcs, type BarisUkuran } from "./UkuranTable";
+import SisaPenjahitPanel, { kelompokkanSisa, type Kombinasi } from "./SisaPenjahitPanel";
 
 export type JenisTransaksi = "SETORAN" | "BAHAN_KELUAR";
 
@@ -59,6 +68,18 @@ export default function TransaksiForm({
   const [konfirmasiHapus, setKonfirmasiHapus] = useState(false);
   const [hapusGagal, setHapusGagal] = useState<string | null>(null);
 
+  /*
+   * Sisa milik penjahit yang dipilih, buat form setoran.
+   *
+   * State `sisaPenjahit` nyimpen id terakhir yang datanya sudah dimuat, bukan
+   * hasil fetch-nya. Comparing id (bukan object) mencegah fetch ulang berulang,
+   * dan membuat jawaban request yang telat tetap terabaikan kalau user sudah
+   * pindah penjahit di meantime.
+   */
+  const [sisaPenjahit, setSisaPenjahit] = useState<Kombinasi[] | null>(null);
+  const [sisaUntuk, setSisaUntuk] = useState<number | null>(null);
+  const [sisaGagal, setSisaGagal] = useState<string | null>(null);
+
   const [tanggal, setTanggal] = useState(edit?.tanggal ?? tanggalAwal);
   const [penjahitId, setPenjahitId] = useState(String(edit?.penjahit.id ?? ""));
   const [modelId, setModelId] = useState(String(edit?.model.id ?? ""));
@@ -103,6 +124,51 @@ export default function TransaksiForm({
     };
   }, [sedangUbah]);
 
+  /*
+   * Sisa hanya relevan untuk setoran. Waktu form koreksi, datanya sudah ada
+   * di `edit`, jadi tidak perlu fetch dan tidak perlu menimpa angka yang
+   * sedang dikoreksi.
+   */
+  useEffect(() => {
+    if (edit) return;
+    if (jenis !== "SETORAN") return;
+    const id = penjahitId === "" ? null : Number(penjahitId);
+    if (id === null || Number.isNaN(id)) return;
+    if (sisaUntuk === id) return; // sudah dimuat untuk penjahit ini
+
+    let batal = false;
+    (async () => {
+      const hasil = await ambilSisaPenjahit(id);
+      if (batal) return;
+      if (!hasil.ok) {
+        setSisaGagal(hasil.error.message);
+        setSisaPenjahit([]);
+        // Tetap tandai sudah dicoba supaya tidak dianggap "sedang memuat"
+        // terus-menerus; pesan errornya yang ditampilkan.
+        setSisaUntuk(id);
+        return;
+      }
+      setSisaGagal(null);
+      setSisaPenjahit(kelompokkanSisa(hasil.data.flatMap((g) => g.baris)));
+      setSisaUntuk(id);
+    })();
+    return () => {
+      batal = true;
+    };
+  }, [penjahitId, jenis, edit, sisaUntuk]);
+
+  /*
+   * "Sedang memuat" diturunkan, bukan disimpan: datanya memang belum ada untuk
+   * penjahit yang dipilih, jadi tidak ada state loading yang perlu diset dari
+   * dalam effect.
+   */
+  const sisaMuat =
+    !edit &&
+    jenis === "SETORAN" &&
+    penjahitId !== "" &&
+    sisaUntuk !== Number(penjahitId) &&
+    sisaGagal === null;
+
   const total = totalPcs(baris);
   const bolehSimpan =
     Boolean(tanggal) &&
@@ -111,6 +177,21 @@ export default function TransaksiForm({
     warnaId !== "" &&
     total > 0 &&
     !simpan.gala;
+
+  /*
+   * Ketuk baris sisa: isi dropdown dan angka per ukuran sekaligus.
+   *
+   * Ukuran yang tidak ada di baris sisa dikosongkan, bukan diisi 0, supaya
+   * angka yang sudah diketik user sebelum memilih penjahit tidak ikut hilang
+   * tanpa sebab. Form wajib minimal satu ukuran berisi, jadi kalau baris sisa
+   * tidak punya ukuran yang bisa dipakai itu kelihatan dari total 0.
+   */
+  function pakaiSisa(k: Kombinasi) {
+    const peta = new Map(k.ukuran.map((u) => [u.label, u.sisa]));
+    setModelId(String(k.modelId));
+    setWarnaId(String(k.warnaId));
+    setBaris(kosongkan().map((b) => ({ ukuran: b.ukuran, jumlah: String(peta.get(b.ukuran) ?? "") })));
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -161,8 +242,29 @@ export default function TransaksiForm({
     return <p className="py-10 text-center text-sm text-teks-lembut">Memuat data...</p>;
   }
 
+  const penjahitTerpilih = master.penjahit.find((p) => String(p.id) === penjahitId);
+  /*
+   * Panel sisa hanya untuk setoran baru. Kalau form koreksi, angka yang
+   * displayed sudah berasal dari transaksi itu sendiri, jadi tidak perlu
+   * panel dan tidak perlu menimpa angka yang sedang dikoreksi.
+   */
+  const tampilSisa =
+    !edit && jenis === "SETORAN" && penjahitId !== "" && penjahitTerpilih !== undefined;
+
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
+      {tampilSisa ? (
+        <SisaPenjahitPanel
+          nama={penjahitTerpilih.nama}
+          kombinasi={sisaPenjahit ?? []}
+          terpilih={{ modelId: Number(modelId), warnaId: Number(warnaId) }}
+          onPilih={pakaiSisa}
+        />
+      ) : null}
+
+      {sisaMuat ? <p className="text-sm text-teks-lembut">Memuat sisa...</p> : null}
+      {sisaGagal ? <Alert tone="error">{sisaGagal}</Alert> : null}
+
       <Card className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Tanggal" htmlFor="tanggal">
@@ -233,6 +335,7 @@ export default function TransaksiForm({
           />
         </Field>
       </Card>
+
 
       <Card>
         <div className="mb-3 flex items-center justify-between">
