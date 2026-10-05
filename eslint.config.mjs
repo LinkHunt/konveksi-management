@@ -6,7 +6,7 @@ import nextTypescript from "eslint-config-next/typescript";
 const config = [
   {
     // File hasil generate (typegen Cloudflare), bukan kode yang ditulis tangan.
-    ignores: ["cloudflare-env.d.ts", ".next/**", ".open-next/**", "node_modules/**"],
+    ignores: ["cloudflare-env.d.ts", ".next/**", ".open-next/**", ".wrangler/**", "node_modules/**"],
   },
   ...nextCoreWebVitals,
   ...nextTypescript,

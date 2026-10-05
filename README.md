@@ -24,6 +24,7 @@ Aplikasi web untuk mencatat **bahan jahitan yang dibawa penjahit** dan **setoran
 14. [Troubleshooting](#14-troubleshooting)
 15. [Backup dan keamanan](#15-backup-dan-keamanan)
 16. [Hal yang belum diverifikasi](#16-hal-yang-belum-diverifikasi)
+17. [Checklist deploy pertama ke Cloudflare](#17-checklist-deploy-pertama-ke-cloudflare)
 
 ---
 
@@ -647,3 +648,69 @@ Beberapa poin berikut berasal dari pengetahuan umum dan belum dikonfirmasi di do
 - Batas 2 akun. Kalau nanti butuh lebih banyak, `prisma/schema.prisma` dan halaman login perlu diubah.
 
 Pola `getDb()` yang membuat Prisma client baru tiap pemanggilan **sudah** terbukti jalan di Codespaces (Node) maupun di workerd lokal (Workers runtime), keduanya dicek 2026-10-05.
+
+## 17. Checklist deploy pertama ke Cloudflare
+
+Belum pernah dijalankan. Semua di bawah hasil baca dokumentasi atau dry run lokal, bukan pengalaman deploy nyata.
+
+### Sebelum mulai
+
+- [ ] Branch sudah di-merge ke `main` (Workers Builds menunggu branch produksi)
+- [ ] `npx wrangler deploy --dry-run` sukses dan ukuran gzip masih di bawah batas plan
+- [ ] Build dan Deploy command sudah diisi di dashboard
+
+### Setting di dashboard Cloudflare
+
+| Field | Nilai | Catatan |
+|---|---|---|
+| **Build command** | `npm run deploy` | Wajib diisi. Kalau dikosongkan, Cloudflare hanya jalan `next build`, itu tidak menghasilkan `.open-next/` dan deploy akan gagal |
+| **Deploy command** | `npx wrangler deploy` (default) | Boleh dibiarkan default. Tapi `npm run deploy` juga jalan karena `opennextjs-cloudflare deploy` saja sebenarnya sudah cukup |
+
+**Penting soal dua command itu**: script `deploy` di `package.json` adalah `opennextjs-cloudflare build && opennextjs-cloudflare deploy`. Kalau Build command diisi `npm run deploy` **dan** Deploy command diisi `npm run deploy`, build akan jalan dua kali. Setelah deploy pertama, cek di log Workers Builds apakah build terulang. Kalau iya, ganti Build command jadi `npx opennextjs-cloudflare build` saja, atau kosongkan dan andalkan Deploy command.
+
+### Secret runtime
+
+Tempatkan di **Settings → Variables and Secrets**, **BUKAN** "Build variables and secrets" (yang itu hanya tersedia saat build dan tidak sampai ke runtime).
+
+| Nama | Isi | Catatan |
+|---|---|---|
+| `DATABASE_URL` | Connection string Neon **pooled**, hostname ada `-pooler` | Jangan pakai yang direct. Direct dipakai untuk migrasi, bukan runtime |
+| `SESSION_SECRET` | `openssl rand -hex 32`, nilai **baru khusus produksi** | Jangan pakai nilai yang sama dengan Codespaces. Kalau berubah, semua sesi lama jadi tidak valid |
+
+Tidak perlu `DIRECT_URL`, `SEED_USER_USERNAME`, atau `SEED_USER_PASSWORD` di Cloudflare. Migrate dan seed jalan di Codespaces, bukan di Worker.
+
+### Tes setelah deploy
+
+```
+curl https://<nama-worker>.workers.dev/api/health
+```
+
+Harus balas `{"ok":true}`. Kalau 503, cek log Workers, kemungkinan besar `prisma generate` belum jalan dengan `engineType = "client"` aktif (lihat §11).
+
+Setelah itu:
+
+1. **Login** di browser: buka `https://<nama-worker>.workers.dev/login`, masukkan akun yang ada. Kalau gagal, cek `SESSION_SECRET` sudah terisi.
+2. **Smoke test** dari Codespaces, arahkan ke alamat worker:
+
+```
+SMOKE_USER=<akun> SMOKE_PASS=<password> ./scripts/smoke-test.sh https://<nama-worker>.workers.dev
+```
+
+Data uji berawalan `TES-` tetap dibersihkan otomatis oleh trap di skrip, sama seperti saat tes lokal.
+
+### Risiko yang belum terbukti
+
+Dua hal ini belum ada datanya, jadi belum bisa dijamin akan berhasil di produksi:
+
+| Risiko | Yang diketahui | Kenapa belum terbukti |
+|---|---|---|
+| **Batas CPU di plan gratis** | Login di lokal memakai sekitar 28 ms per hash PBKDF2 (210.000 iterasi), seluruh request login sekitar 120-160 ms | Plan gratis punya batas CPU per request yang lebih ketat dari worker lokal. Kalau login gagal di produksi, gejalanya biasanya "Worker exceeded resource limits". Mitigasi: turunkan `PBKDF2_ITERASI` di `src/lib/auth-password.ts`, lalu jalankan `npm run ganti-password` untuk membuat ulang hash. Jumlah iterasi tersimpan di dalam string hash, jadi hash lama tetap bisa dibaca |
+| **Batas ukuran bundle** | `wrangler deploy --dry-run` terakhir: Total Upload 9.141 KiB, gzip **2.209 KiB** | Dokumentasi menyebut free plan punya batas sekitar 3 MB. Sekarang pakai sekitar 72% dari batas, jadi masih muat tapi ruangnya tipis. Kalau nanti bundle membesar (tambah dependency), bisa kena batas |
+
+Perintah untuk cek ukuran kapan saja:
+
+```
+npx wrangler deploy --dry-run
+```
+
+Baca baris `Total Upload` dan `gzip`. Yang relevan adalah angka **gzip**, karena itu yang dihitung terhadap batas upload.
