@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
     // Selalu jalankan verifikasi, walau user tidak ada, supaya waktu respons
     // tidak membocorkan username mana yang terdaftar.
-    const stored = user?.passwordHash ?? "pbkdf2-sha256$210000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    const stored = user?.passwordHash ?? "pbkdf2-sha256$100000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
     const ok = await verifyPassword(body.data.password, stored);
 
     if (!user || !ok) {

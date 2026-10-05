@@ -3,11 +3,23 @@
 //
 // PBKDF2-HMAC-SHA256 lewat Web Crypto. Dipilih, bukan bcrypt, karena bcrypt
 // butuh native binding yang tidak tersedia di Cloudflare Workers.
-// 210.000 iterasi = rekomendasi OWASP untuk PBKDF2-HMAC-SHA256.
+// 100.000 iterasi, BUKAN rekomendasi OWASP 600.000. Cloudflare Workers menolak
+// lebih dari 100.000: deriveBits melempar NotSupportedError ("Pbkdf2 failed:
+// iteration counts above 100000 are not supported") dan verifyPassword menelan
+// error itu jadi false, sehingga SETIAP login selalu 401 tanpa ada exception di
+// log. Sudah diuji langsung di Worker produksi pada 2026-10-05: 100.000 OK,
+// 100.001 ditolak, 210.000 ditolak.
+//
+// Run lokal (next dev atau wrangler dev) TIDAK bisa menangkap batas ini karena
+// memakai Web Crypto Node yang tidak punya batas iterasi. Kalau angka ini suatu
+// saat dinaikkan, uji ulang lewat Worker asli, bukan lokal.
 //
 // Format: pbkdf2-sha256$<iterasi>$<base64 salt>$<base64 hash>
 
-const PBKDF2_ITERASI = 210_000;
+const PBKDF2_ITERASI = 100_000;
+// Batas keras runtime workerd. Hash yang menyimpan angka lebih besar akan gagal
+// diam-diam, jadi verifyPassword memberi peringatan kalau menemukannya.
+const PBKDF2_ITERASI_MAX = 100_000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
 
@@ -53,6 +65,15 @@ export async function verifyPassword(password: string, stored: string): Promise<
   if (algo !== "pbkdf2-sha256") return false;
   const iterations = Number.parseInt(iterStr, 10);
   if (!Number.isInteger(iterations) || iterations < 1) return false;
+  if (iterations > PBKDF2_ITERASI_MAX) {
+    // Tanpa ini, hash lama gagal diam-diam dan gejalanya cuma "login selalu
+    // salah" tanpa petunjuk sama sekali.
+    console.warn(
+      `[auth] hash tersimpan memakai ${iterations} iterasi, di atas batas Workers ` +
+        `${PBKDF2_ITERASI_MAX}. Hash ini tidak bisa diverifikasi di Workers; ` +
+        "jalankan ulang ganti-password untuk membuat hash baru.",
+    );
+  }
   try {
     const salt = b64ToBytes(saltB64);
     const expected = b64ToBytes(hashB64);
