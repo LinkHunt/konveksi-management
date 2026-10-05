@@ -386,7 +386,7 @@ Karena tidak ada laptop, jalur yang dipilih adalah **deploy otomatis dari GitHub
 
 1. Di dashboard Cloudflare (bisa dibuka dari browser HP): Workers & Pages, buat project baru dari Git, pilih repo privat.
 2. Isi `DATABASE_URL` (versi pooled) **dan** `SESSION_SECRET` sebagai variabel lingkungan / secret di Cloudflare. Dua-duanya wajib: tanpa `SESSION_SECRET` proses login tidak bisa menandatangani cookie.
-3. Perintah build dan deploy mengikuti script `deploy` di `package.json`, yaitu `opennextjs-cloudflare build && opennextjs-cloudflare deploy` menurut dokumentasi OpenNext.
+3. Build command diisi `npx opennextjs-cloudflare build`, Deploy command dibiarkan default `npx wrangler deploy`. Jangan pakai `npm run deploy` untuk Build command, alasannya di §17.
 4. Setiap `git push` ke branch utama men-deploy ulang.
 
 Sebelum deploy, pastikan `prisma generate` sudah dijalankan dengan `engineType = "client"` aktif (lihat §11). Kalau lupa, worker akan gagal saat query pertama dengan pesan `could not locate the Query Engine`.
@@ -663,10 +663,32 @@ Belum pernah dijalankan. Semua di bawah hasil baca dokumentasi atau dry run loka
 
 | Field | Nilai | Catatan |
 |---|---|---|
-| **Build command** | `npm run deploy` | Wajib diisi. Kalau dikosongkan, Cloudflare hanya jalan `next build`, itu tidak menghasilkan `.open-next/` dan deploy akan gagal |
-| **Deploy command** | `npx wrangler deploy` (default) | Boleh dibiarkan default. Tapi `npm run deploy` juga jalan karena `opennextjs-cloudflare deploy` saja sebenarnya sudah cukup |
+| **Build command** | `npx opennextjs-cloudflare build` | Wajib diisi. Kalau dikosongkan, Cloudflare hanya jalan `next build`, itu tidak menghasilkan `.open-next/` dan deploy akan gagal. Jangan isi `npm run deploy`, alasannya di bawah |
+| **Deploy command** | `npx wrangler deploy` (default) | Biarkan default. Kalau default-nya gagal atau ternyata tidak menjalankan `opennextjs-cloudflare deploy`, ganti jadi `npx opennextjs-cloudflare deploy` |
 
-**Penting soal dua command itu**: script `deploy` di `package.json` adalah `opennextjs-cloudflare build && opennextjs-cloudflare deploy`. Kalau Build command diisi `npm run deploy` **dan** Deploy command diisi `npm run deploy`, build akan jalan dua kali. Setelah deploy pertama, cek di log Workers Builds apakah build terulang. Kalau iya, ganti Build command jadi `npx opennextjs-cloudflare build` saja, atau kosongkan dan andalkan Deploy command.
+**Koreksi Build command (sebelumnya ditulis `npm run deploy`)**. Catatan sebelumnya mengira Build command boleh `npm run deploy`. Itu keliru dan sudah dikoreksi di sini.
+
+Alasannya: script `deploy` di `package.json` adalah `opennextjs-cloudflare build && opennextjs-cloudflare deploy`, sedangkan Deploy command default `npx wrangler deploy` juga memanggil `opennextjs-cloudflare deploy` setelah tahap build selesai. Kalau Build command diisi `npm run deploy`, build akan dijalankan dua kali dalam satu siklus.
+
+Dasar koreksi ini adalah pembacaan source CLI, file `node_modules/@opennextjs/cloudflare/dist/cli/commands/deploy.js`. Fungsi `deployCommand` di sana hanya memanggil `getNormalizedOptions`, `populateCache`, lalu `runWrangler` dengan argumen `deploy`. Tidak ada pemanggilan build sama sekali. CLI itu juga menyetel `OPEN_NEXT_DEPLOY=true` dengan komentar resmi bahwa tanpa itu `wrangler deploy` akan memanggil `opennextjs-cloudflare deploy` lagi dan menyebabkan rekursi yang tidak diinginkan.
+
+**Status di dashboard: BELUM TERBUKTI.** Ulasan source di atas sudah terbukti, tapi perilaku nyata di Workers Builds belum pernah diamati karena belum ada deploy sama sekali. Setelah deploy pertama, cek di log Workers Builds apakah tahap build muncul dua kali. Kalau iya, Build command sudah benar, dan kemungkinan masalahnya ada di Deploy command.
+
+### Fallback kalau Deploy command default bermasalah
+
+Kalau `npx wrangler deploy` (default) gagal, atau kalau deploy terlihat sukses tapi `.open-next/` ternyata tidak ter-deploy dengan benar, ganti **Deploy command** jadi:
+
+```
+npx opennextjs-cloudflare deploy
+```
+
+Perintah itu membaca hasil build di `.open-next/`, mengisi cache, lalu memanggil wrangler. Build command tetap `npx opennextjs-cloudflare build` dan tidak ikut diubah. Pakai salah satu, jangan dua-duanya sekaligus.
+
+### Versi Node di lingkungan build
+
+**BELUM TERBUKTI.** Simulasi build bersih yang dijalankan di Codespaces memakai Node **24.21.0** dan npm **11.19.0**. Versi Node yang dipakai lingkungan build Cloudflare belum diketahui, jadi build pertama mungkin gagal karena versi, bukan karena kode.
+
+Kalau build gagal dengan pesan yang menyebut versi Node atau engine, cari variabel build `NODE_VERSION` di dokumentasi Cloudflare Workers Builds, lalu set ke versi yang sama dengan lokal yaitu 24.
 
 ### Secret runtime
 
@@ -700,12 +722,13 @@ Data uji berawalan `TES-` tetap dibersihkan otomatis oleh trap di skrip, sama se
 
 ### Risiko yang belum terbukti
 
-Dua hal ini belum ada datanya, jadi belum bisa dijamin akan berhasil di produksi:
+Tiga hal ini belum ada datanya, jadi belum bisa dijamin akan berhasil di produksi:
 
 | Risiko | Yang diketahui | Kenapa belum terbukti |
 |---|---|---|
 | **Batas CPU di plan gratis** | Login di lokal memakai sekitar 28 ms per hash PBKDF2 (210.000 iterasi), seluruh request login sekitar 120-160 ms | Plan gratis punya batas CPU per request yang lebih ketat dari worker lokal. Kalau login gagal di produksi, gejalanya biasanya "Worker exceeded resource limits". Mitigasi: turunkan `PBKDF2_ITERASI` di `src/lib/auth-password.ts`, lalu jalankan `npm run ganti-password` untuk membuat ulang hash. Jumlah iterasi tersimpan di dalam string hash, jadi hash lama tetap bisa dibaca |
 | **Batas ukuran bundle** | `wrangler deploy --dry-run` terakhir: Total Upload 9.141 KiB, gzip **2.209 KiB** | Dokumentasi menyebut free plan punya batas sekitar 3 MB. Sekarang pakai sekitar 72% dari batas, jadi masih muat tapi ruangnya tipis. Kalau nanti bundle membesar (tambah dependency), bisa kena batas |
+| **Versi Node di build** | Simulasi lokal memakai Node 24.21.0 dan npm 11.19.0 | Versi Node di lingkungan build Cloudflare belum diketahui dan belum pernah diuji. Kalau build gagal dengan pesan soal versi atau engine, set variabel build `NODE_VERSION` di dashboard |
 
 Perintah untuk cek ukuran kapan saja:
 
