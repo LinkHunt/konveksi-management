@@ -157,14 +157,14 @@ src/
       layout.tsx              # pengecekan login dilakukan di sini
       LogoutButton.tsx
       page.tsx                # dashboard
-      setoran/page.tsx        # placeholder
-      bahan-keluar/page.tsx    # placeholder
-      sisa/page.tsx           # placeholder
+      setoran/page.tsx        # form setoran
+      bahan-keluar/page.tsx    # form bahan keluar
+      sisa/page.tsx           # rekap sisa + filter
       master/
-        pemilik/page.tsx      # placeholder
-        model/page.tsx        # placeholder
-        warna/page.tsx        # placeholder
-        penjahit/page.tsx     # placeholder
+        pemilik/page.tsx      # master pemilik
+        model/page.tsx        # master model
+        warna/page.tsx        # master warna
+        penjahit/page.tsx     # master penjahit
     api/
       auth/login/route.ts
       auth/logout/route.ts
@@ -204,7 +204,7 @@ docs/
   API.md                      # kontrak API untuk sesi frontend
 ```
 
-Folder dan file di `src/components/` sudah ada, tapi isinya masih stub placeholder tiga baris, sama seperti semua halaman `(app)` selain login. Sesi frontend tinggal mengisi, tidak perlu membuat dari nol.
+Komponen dan halaman sudah diisi. `TransaksiForm` dipakai bersama oleh Setoran, Bahan Keluar, dan koreksi transaksi, jadi bentuk inputnya cuma satu sumber.
 
 Struktur awal dibuat oleh GitHub Copilot memakai prompt khusus, dengan aturan: tanpa `middleware.ts`, tanpa edge runtime, tanpa mengubah skema.
 
@@ -512,7 +512,7 @@ curl http://localhost:8787/api/health
 | Verifikasi `npx eslint .` | 0 error dicek 2026-10-05 pagi. Sore hari proses lint timeout di Codespace sehingga tidak diulang. Perubahan hari ini hanya 2 file config, keduanya bukan TypeScript |
 | Verifikasi database bersih setelah smoke test | Semua tabel master dan transaksi berisi 0 baris, `User` 1 baris |
 | **Commit seluruh backend** | **Sudah di-push** ke `origin/main` (`5482c2c..a73b6d3`) |
-| Halaman UI selain login | **Placeholder semua**. Folder dan file `src/components/` sudah ada tapi isinya masih stub, tinggal diisi |
+| Halaman UI selain login | **Selesai 2026-10-05**. Beranda, Setoran, Bahan Keluar, koreksi transaksi, Sisa, dan 4 halaman master. Navigasi sidebar di layar lebar, bottom bar di layar sempit. `tsc` dan `eslint` bersih, ter-deploy |
 | **Uji di runtime Workers lokal (OpenNext)** | **Selesai 2026-10-05**. `GET /api/health` 200, `POST /api/auth/login` 200 dengan cookie, endpoint master/transaksi/sisa semua 200, auth guard 401, logout 200. Jalur di `npm run preview` (workerd lokal port 8787). Detail hasil uji di §14 |
 | **Batas PBKDF2 di Workers** | **TERBUKTI 100.000 iterasi**. Diuji langsung di Worker produksi 2026-10-05: 100.000 OK, 100.001 ditolak dengan `NotSupportedError`, 210.000 ditolak. Iterasi sudah diturunkan ke 100.000 dan hash lama di-hash ulang. Klaim lama bahwa 210.000 aman **salah**, karena hanya diuji di run lokal. Detail di §14 |
 | **Konfigurasi Workers di `next.config.ts` dan `schema.prisma`** | **Selesai**. `engineType = "client"`, `output: "standalone"`, `serverExternalPackages: ["@prisma/client", ".prisma/client"]`. `wrangler.jsonc` tidak perlu diubah |
@@ -523,9 +523,9 @@ curl http://localhost:8787/api/health
 1. **Setup dasar**: project Next.js, Prisma ke Neon. **Selesai**, kecuali deploy kosong ke Cloudflare yang belum.
 2. **Login**: 2 akun dengan session cookie dan password di-hash. **Selesai**.
 3. **Data master**: CRUD pemilik, model, warna, penjahit (tambah, edit, nonaktifkan). **Selesai** di sisi API.
-4. **Fitur 1, Setoran**: form dengan tabel jumlah per ukuran dan daftar riwayat. API selesai, UI belum.
-5. **Fitur 2, Bahan dibawa**: memakai komponen form yang sama, beda jenis transaksi. API selesai, UI belum.
-6. **Sisa belum disetor**: halaman rekap per penjahit, model, warna, dan ukuran. API selesai, UI belum.
+4. **Fitur 1, Setoran**: form dengan tabel jumlah per ukuran dan daftar riwayat. **Selesai**, commit `0f1da02`.
+5. **Fitur 2, Bahan dibawa**: memakai komponen form yang sama, beda jenis transaksi. **Selesai**, commit `0f1da02`.
+6. **Sisa belum disetor**: halaman rekap per penjahit, model, warna, dan ukuran. **Selesai**, commit `0f1da02`.
 7. **Rapikan dan backup**: tampilan mobile, filter, dan prosedur export database berkala.
 
 Urutan 1 sampai 3 didahulukan karena semua fitur bergantung pada fondasi itu. Seluruh API untuk tahap 4 sampai 6 sudah jadi, teruji, dan sudah di-push, jadi sesi berikutnya tinggal membangun UI di atasnya. Kontraknya ada di `docs/API.md`.
