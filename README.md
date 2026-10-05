@@ -82,7 +82,7 @@ CRUD untuk pemilik, model baju, warna, dan penjahit. Data yang tidak dipakai lag
 | Database | **Neon** (PostgreSQL serverless) | Tier gratis, scale-to-zero |
 | ORM | **Prisma 6** (6.19.3) | Disambung ke Neon lewat `@prisma/adapter-neon` |
 | Hosting | **Cloudflare Workers** | Lewat adapter **OpenNext** (`@opennextjs/cloudflare`) |
-| Login | Session cookie | Password di-hash PBKDF2-HMAC-SHA256 210.000 iterasi lewat Web Crypto, 2 akun |
+| Login | Session cookie | Password di-hash PBKDF2-HMAC-SHA256 100.000 iterasi lewat Web Crypto, 2 akun. Angkanya dibatasi runtime Workers, bukan pilihan bebas (lihat §14) |
 | Validasi input | **zod** | Semua validasi request, pesan error langsung bahasa Indonesia |
 | Repo | **GitHub (privat)** | Auto-deploy dari Cloudflare direncanakan |
 | Lingkungan kerja | **GitHub Codespaces**, diakses lewat **Termux (SSH)** dari HP | Tidak ada laptop |
@@ -501,7 +501,7 @@ curl http://localhost:8787/api/health
 | Penggabungan template ke repo | Selesai (step 6: `cp -rn`, `src/app/page.tsx` template dihapus) |
 | Verifikasi alias `@/*` di `tsconfig.json` | Selesai (`"@/*": ["./src/*"]`) |
 | Verifikasi `.env` ter-ignore git | Selesai (`git check-ignore .env` = `.env`) |
-| **Tahap 2: Login** | **Selesai**. PBKDF2-HMAC-SHA256 210.000 iterasi lewat Web Crypto, session cookie HMAC-SHA256 7 hari, `prisma/seed.ts` dan `prisma/ganti-password.ts`. Commit `576600d` |
+| **Tahap 2: Login** | **Selesai**. PBKDF2-HMAC-SHA256 100.000 iterasi lewat Web Crypto, session cookie HMAC-SHA256 7 hari, `prisma/seed.ts` dan `prisma/ganti-password.ts`. Commit `576600d` |
 | **Tahap 3: Data master** | **Selesai**. 4 entity lewat `/api/master/[entity]`, duplikat dicek insensitive huruf, master yang dipakai transaksi tidak bisa dinonaktifkan (409). Commit `d9e656b` |
 | **Tahap 4: Transaksi** | **Selesai**. `/api/transaksi` dengan filter, pagination, PUT, DELETE. Item jumlah 0 dibuang, ukuran dobel ditolak. Commit `0528300` |
 | **Tahap 5: Sisa belum disetor** | **Selesai**. Query agregasi di `src/lib/sisa.ts`, negatif tidak dipotong, baris sisa 0 disembunyikan bawaan. Commit `f1d7471` |
@@ -514,9 +514,9 @@ curl http://localhost:8787/api/health
 | **Commit seluruh backend** | **Sudah di-push** ke `origin/main` (`5482c2c..a73b6d3`) |
 | Halaman UI selain login | **Placeholder semua**. Folder dan file `src/components/` sudah ada tapi isinya masih stub, tinggal diisi |
 | **Uji di runtime Workers lokal (OpenNext)** | **Selesai 2026-10-05**. `GET /api/health` 200, `POST /api/auth/login` 200 dengan cookie, endpoint master/transaksi/sisa semua 200, auth guard 401, logout 200. Jalur di `npm run preview` (workerd lokal port 8787). Detail hasil uji di §14 |
-| **PBKDF2 210.000 iterasi di Workers** | **Terverifikasi aman**. Diuji 3x: 27-29 ms, tidak ada error, tidak mendekati batas CPU. Klaim batas 100.000 iterasi **tidak terbukti benar**. `auth-password.ts` tidak diubah |
+| **Batas PBKDF2 di Workers** | **TERBUKTI 100.000 iterasi**. Diuji langsung di Worker produksi 2026-10-05: 100.000 OK, 100.001 ditolak dengan `NotSupportedError`, 210.000 ditolak. Iterasi sudah diturunkan ke 100.000 dan hash lama di-hash ulang. Klaim lama bahwa 210.000 aman **salah**, karena hanya diuji di run lokal. Detail di §14 |
 | **Konfigurasi Workers di `next.config.ts` dan `schema.prisma`** | **Selesai**. `engineType = "client"`, `output: "standalone"`, `serverExternalPackages: ["@prisma/client", ".prisma/client"]`. `wrangler.jsonc` tidak perlu diubah |
-| Deploy ke Cloudflare | **Belum**. Yang sudah selesai baru uji lokal di workerd |
+| Deploy ke Cloudflare | **Selesai 2026-10-05**. Worker `konveksi-management` live di `konveksi-management.titin2150.workers.dev`, `GET /api/health` 200, `POST /api/auth/login` 200 + cookie setelah batas PBKDF2 diperbaiki |
 
 ## 13. Rencana tahapan pengerjaan
 
@@ -581,18 +581,38 @@ Semua di bawah ini dijalankan lewat `npx opennextjs-cloudflare preview` (workerd
 | `GET /api/sisa?penjahitId=abc` | `400` `{"error":"Parameter penjahitId harus angka bulat."}` |
 | `POST /api/auth/logout` lalu akses lagi | `200` lalu `401` |
 
-### PBKDF2 di Workers: 210.000 iterasi aman
+### Batas PBKDF2 di Cloudflare Workers: 100.000 iterasi
 
-Dulu ada kekhawatiran bahwa Workers membatasi PBKDF2 maksimal 100.000 iterasi. **Tidak terbukti benar.** Diuji langsung lewat route yang hanya memanggil `crypto.subtle.deriveBits`, tiga kali masing-masing:
+Cloudflare Workers **menolak** `deriveBits` dengan lebih dari 100.000 iterasi:
 
-| Iterasi | Run 1 | Run 2 | Run 3 |
-|---|---|---|---|
-| 210.000 | 29 ms | 27 ms | 28 ms |
-| 100.000 | 19 ms | 14 ms | 13 ms |
+```
+NotSupportedError: Pbkdf2 failed: iteration counts above 100000
+are not supported (requested 210000).
+```
 
-Keduanya berhasil, tidak ada error dan tidak mendekati batas CPU. Rasio ~2:1 sesuai proporsional. Kesimpulan: **210.000 iterasi tidak perlu diturunkan**, `src/lib/auth-password.ts` tidak diubah, dan tidak ada hash yang perlu dibuat ulang.
+Diuji langsung di Worker produksi pada 2026-10-05:
 
-Login end-to-end (hash + verify) di workerd juga berhasil pada iterasi 210.000, sekitar 120-160 ms per request.
+| Iterasi | Hasil |
+|---|---|
+| 100.000 | **OK**, hash 32 byte |
+| 100.001 | GAGAL, `NotSupportedError` |
+| 210.000 | GAGAL, `NotSupportedError` |
+
+Gejalanya deceptive: `verifyPassword` punya `catch` yang mengembalikan `false`, jadi **tidak ada exception di log**. Login selalu 401, padahal `GET /api/health` balas `{"ok":true}`, user ketemu di database, dan hash-nya valid. Terlihat seperti masalah kredensial padahal crypto-nya tidak pernah jalan.
+
+#### Kenapa test lokal tidak menangkap ini
+
+Run lokal (`next dev` atau `wrangler dev`) memakai **Web Crypto Node** yang tidak punya batas iterasi, jadi 210.000 selalu sukses di sana. Runner produksi (workerd) yang menegakkan batas. Test lokal tidak worthless untuk hal lain, tapi batas runtime hanya bisa dibuktikan lewat Worker asli.
+
+Kesimpulan salah sebelumnya ("210.000 aman, tidak perlu diturunkan") arose karena pengukuran dilakukan di runner yang salah.
+
+#### Perbaikan
+
+`PBKDF2_ITERASI` di `src/lib/auth-password.ts` diturunkan ke `100_000`. Karena jumlah iterasi **disimpan di dalam string hash** (`pbkdf2-sha256$<iterasi>$...`), hash lama tidak bisa dipakai lagi di Workers meski konstantanya diturunkan. Kedua akun di-hash ulang lewat `npm run ganti-password`.
+
+`verifyPassword` sekarang memberi `console.warn` kalau menemukan hash dengan iterasi di atas batas, supaya kasus serupa tidak tenggelam diam-diam lagi.
+
+Catatan: 100.000 di bawah rekomendasi OWASP 600.000 untuk PBKDF2-HMAC-SHA256. Web Crypto Workers tidak menyediakan bcrypt/scrypt/argon2, jadi tidak ada cara menaikkan angka ini tanpa ganti algoritma.
 
 ### Uji pembalik: config yang ternyata tidak perlu
 
@@ -726,7 +746,7 @@ Tiga hal ini belum ada datanya, jadi belum bisa dijamin akan berhasil di produks
 
 | Risiko | Yang diketahui | Kenapa belum terbukti |
 |---|---|---|
-| **Batas CPU di plan gratis** | Login di lokal memakai sekitar 28 ms per hash PBKDF2 (210.000 iterasi), seluruh request login sekitar 120-160 ms | Plan gratis punya batas CPU per request yang lebih ketat dari worker lokal. Kalau login gagal di produksi, gejalanya biasanya "Worker exceeded resource limits". Mitigasi: turunkan `PBKDF2_ITERASI` di `src/lib/auth-password.ts`, lalu jalankan `npm run ganti-password` untuk membuat ulang hash. Jumlah iterasi tersimpan di dalam string hash, jadi hash lama tetap bisa dibaca |
+| **Batas CPU di plan gratis** | Login di lokal memakai sekitar 28 ms per hash PBKDF2 (210.000 iterasi), seluruh request login sekitar 120-160 ms | Plan gratis punya batas CPU per request yang lebih ketat dari worker lokal. Kalau login gagal di produksi, gejalanya biasanya "Worker exceeded resource limits". Mitigasi: turunkan `PBKDF2_ITERASI` di `src/lib/auth-password.ts` **dan** jalankan `npm run ganti-password` untuk membuat ulang hash. Jumlah iterasi tersimpan di dalam string hash, jadi hash lama tidak hanya perlu dibaca ulang tapi wajib di-hash ulang. Batas workerd sudah diketahui: 100.000 iterasi (lihat sub-bagian di atas) |
 | **Batas ukuran bundle** | `wrangler deploy --dry-run` terakhir: Total Upload 9.141 KiB, gzip **2.209 KiB** | Dokumentasi menyebut free plan punya batas sekitar 3 MB. Sekarang pakai sekitar 72% dari batas, jadi masih muat tapi ruangnya tipis. Kalau nanti bundle membesar (tambah dependency), bisa kena batas |
 | **Versi Node di build** | Simulasi lokal memakai Node 24.21.0 dan npm 11.19.0 | Versi Node di lingkungan build Cloudflare belum diketahui dan belum pernah diuji. Kalau build gagal dengan pesan soal versi atau engine, set variabel build `NODE_VERSION` di dashboard |
 
