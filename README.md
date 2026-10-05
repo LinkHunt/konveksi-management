@@ -313,6 +313,7 @@ EOF
 Saat dicek, `package.json` hanya berisi paket Prisma (tanpa Next.js dan tanpa script `dev`), karena Copilot hanya membuat folder dan file placeholder. Perbaikannya: buat project template di folder sementara, lalu gabungkan ke repo tanpa menimpa file yang sudah ada.
 
 ```bash
+
 # 1. Buat template di folder sementara
 cd /tmp
 npm create cloudflare@latest konveksi-app -- --framework=next --platform=workers
@@ -329,6 +330,7 @@ Pilihan saat wizard berjalan:
 | Inisialisasi git | No |
 
 ```bash
+
 # 2. Cek hasilnya (harus ada src/app)
 ls -a /tmp/konveksi-app
 ls /tmp/konveksi-app/src/app
@@ -361,6 +363,7 @@ Jalankan app di jendela tmux pertama, lalu tes dari jendela kedua:
 
 ```bash
 npm run dev
+
 # jendela kedua:
 curl localhost:3000/api/health
 ```
@@ -430,21 +433,38 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 ```
 
-### Yang ternyata TIDAK diperlukan
+### Yang ternyata tidak perlu
 
-Tiga hal ini sempat dicoba karena muncul di dokumentasi, tapi lewat uji pembalik (cabut lalu tes ulang) ketahuan tidak dibutuhkan. Jangan ditambahkan:
+Dua hal ini sempat dicoba karena muncul di dokumentasi, tapi lewat uji pembalik (cabut lalu tes ulang) ketahuan tidak dibutuhkan. Jangan ditambahkan:
 
 | Config | Hasil uji |
 |---|---|
-| `compatibility_flags: ["nodejs_compat"]` di `wrangler.jsonc` | Cabut, semua endpoint tetap 200. Diperlukan hanya kalau memakai adapter berbasis `pg`, bukan `@prisma/adapter-neon` |
 | `previewFeatures = ["driverAdapters"]` | Deprecated di Prisma 6.19.3 (`prisma validate` memberi warning). Driver adapter sudah GA |
 | Env var `PRISMA_CLIENT_FORCE_WASM=1` | Cabut dari `.dev.vars`, semua endpoint tetap 200 |
+
+### `nodejs_compat`: wajib menurut dokumen, tidak perlu menurut uji lokal
+
+Dua bukti ini bertentangan, dan keduanya dicatat apa adanya:
+
+| Bukti | Hasil |
+|---|---|
+| Uji pembalik di workerd lokal (flag dicabut, lalu semua endpoint dipanggil) | `/api/health` 200, login 200, transaksi 200, sisa 200. Tidak ada efek |
+| Dokumentasi OpenNext (`opennext.js.org/cloudflare/get-started`) | "you must enable the `nodejs_compat` compatibility flag", dan flag itu ada di contoh `wrangler.jsonc` mereka |
+
+**Keputusan: flag tetap dipasang**, mengikuti dokumen, karena:
+
+1. Dokumentasi menyatakannya wajib, bukan saran.
+2. Workerd lokal dan Workers produksi bisa berbeda dalam hal API Node.
+3. Menambah flag yang tidak dipakai tidak merusak apa pun; mencabutnya saat produksi padahal dibutuhkan bisa merusak.
+
+Kalau nanti terbukti tidak perlu, cabut saja. Uji pembalik sudah tercatat di §14.
 
 ### Variabel lokal untuk preview
 
 Preview OpenNext memakai workerd lokal dan membaca rahasia dari **`.dev.vars`**, bukan `.env`:
 
 ```
+
 # .dev.vars - JANGAN di-commit, sudah tercakup .gitignore
 DATABASE_URL="postgresql://...-pooler...:5432/neondb"
 SESSION_SECRET="..."
@@ -579,7 +599,7 @@ Tiga konfigurasi ini sempat dicoba, lalu dicabut dan dites ulang. Semua tetap `2
 
 | Config | Hasil setelah dicabut |
 |---|---|
-| `compatibility_flags: ["nodejs_compat"]` di `wrangler.jsonc` | `/api/health` 200, login 200, transaksi 200, sisa 200 |
+| `compatibility_flags: ["nodejs_compat"]` di `wrangler.jsonc` | `/api/health` 200, login 200, transaksi 200, sisa 200. Tapi tetap dipasang karena dokumentasi menyatakan wajib, lihat §11 |
 | `previewFeatures = ["driverAdapters"]` | Deprecated di 6.19.3 (lihat tabel di atas) |
 | Env var `PRISMA_CLIENT_FORCE_WASM=1` di `.dev.vars` | `/api/health` 200, login 200, transaksi 200, sisa 200 |
 
@@ -616,9 +636,7 @@ Kemungkinan error lain:
 
 ## 16. Hal yang belum diverifikasi
 
-
 Beberapa poin berikut berasal dari pengetahuan umum dan belum dikonfirmasi di dokumentasi resmi atau lewat percobaan langsung. Cek sebelum diandalkan:
-
 
 - Penggunaan koneksi pooled untuk runtime di **Workers produksi**. Sudah terbukti jalan di workerd lokal (`npm run preview`), tapi belum dicoba di Workers sungguhan yang deploy ke internet.
 - Cara login Wrangler dengan API token dari lingkungan remote tanpa browser.
