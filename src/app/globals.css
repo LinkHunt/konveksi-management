@@ -1,26 +1,96 @@
 @import "tailwindcss";
 
+/*
+ * Token warna.
+ *
+ * Aksen biru sengaja dibuat soft (#3b6fd4 dk): biru saturated seperti
+ * #2563eb pada layar putih berat dibaca dan cepat bikin capek kalau formnya
+ * panjang. Aksen dipakai HANYA untuk aksi utama dan link, bukan untuk
+ * dekorasi, supaya halaman tetap tenang.
+ *
+ * Font memakai Geist (dari next/font) supaya tidak perlu request ke Google dan
+ * tidak ada layout shift saat halaman dimuat.
+ */
+
 :root {
-	--background: #ffffff;
-	--foreground: #171717;
+	--latar: #ffffff;
+	--permukaan: #ffffff;
+	--permukaan-2: #f7f8fa;
+	--garis: #e5e7eb;
+	--garis-kuat: #d1d5db;
+	--teks: #171717;
+	--teks-lembut: #6b7280;
+	--teks-sangat-lembut: #9ca3af;
+
+	--aksen: #3b6fd4;
+	--aksen-gelap: #2f59ad;
+	--aksen-lembut: #eef3fc;
+	--aksen-garis: #cfdcf5;
+
+	--sukses: #2f7d5c;
+	--sukses-lembut: #edf7f2;
+	--peringatan: #a8681b;
+	--peringatan-lembut: #fdf5e9;
+	--bahaya: #b8403a;
+	--bahaya-lembut: #fdf0ef;
 }
 
 @theme inline {
-	--color-background: var(--background);
-	--color-foreground: var(--foreground);
+	--color-latar: var(--latar);
+	--color-permukaan: var(--permukaan);
+	--color-permukaan-2: var(--permukaan-2);
+	--color-garis: var(--garis);
+	--color-garis-kuat: var(--garis-kuat);
+	--color-teks: var(--teks);
+	--color-teks-lembut: var(--teks-lembut);
+	--color-teks-sangat-lembut: var(--teks-sangat-lembut);
+	--color-aksen: var(--aksen);
+	--color-aksen-gelap: var(--aksen-gelap);
+	--color-aksen-lembut: var(--aksen-lembut);
+	--color-aksen-garis: var(--aksen-garis);
+	--color-sukses: var(--sukses);
+	--color-sukses-lembut: var(--sukses-lembut);
+	--color-peringatan: var(--peringatan);
+	--color-peringatan-lembut: var(--peringatan-lembut);
+	--color-bahaya: var(--bahaya);
+	--color-bahaya-lembut: var(--bahaya-lembut);
+
 	--font-sans: var(--font-geist-sans);
 	--font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-	:root {
-		--background: #0a0a0a;
-		--foreground: #ededed;
-	}
+* {
+	border-color: var(--garis);
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
 }
 
 body {
-	background: var(--background);
-	color: var(--foreground);
-	font-family: Arial, Helvetica, sans-serif;
+	background: var(--latar);
+	color: var(--teks);
+	font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
+
+/* Input angka di form ukuran: sembunyikan spinner karena user isi manual,
+   bukan drag. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+input[type="number"] {
+	-moz-appearance: textfield;
+	appearance: textfield;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
 }
