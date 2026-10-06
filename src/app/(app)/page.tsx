@@ -107,7 +107,12 @@ export default async function DashboardPage() {
                     <Td className="whitespace-nowrap">
                       <span className="text-teks-lembut">{t.pemilik.nama}</span> / {t.model.nama}
                     </Td>
-                    <Td className="whitespace-nowrap">{t.warna.nama}</Td>
+                    <Td className="whitespace-nowrap">
+                      {t.items
+                        .map((i) => i.warna.nama)
+                        .filter((nama, i, semua) => semua.indexOf(nama) === i)
+                        .join(", ")}
+                    </Td>
                     <Td align="right" className="tabular-nums font-medium">
                       <Link href={`/transaksi/${t.id}`} className="hover:text-aksen hover:underline">
                         {t.totalPcs}

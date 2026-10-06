@@ -13,32 +13,49 @@ import { parseTanggalWIB, formatTanggalWIB } from "./tanggal";
 
 export type Jenis = "SETORAN" | "BAHAN_KELUAR";
 
-export type ItemInput = { ukuran: UkuranLabel; jumlah: number };
+export type ItemInput = { warnaId: number; ukuran: UkuranLabel; jumlah: number };
 
 export type RowSiapSimpan = {
   tanggal: Date;
   jenis: Jenis;
   penjahitId: number;
   modelId: number;
-  warnaId: number;
   catatan: string | null;
-  items: { ukuran: UkuranEnum; jumlah: number }[];
+  items: { warnaId: number; ukuran: UkuranEnum; jumlah: number }[];
+  /** Nama warna per id, dipakai untuk pesan error dan pengurutan. */
+  namaWarna: Map<number, string>;
 };
 
 /**
  * Ubah payload mentah (dari zod) jadi bentuk siap tulis:
  * tanggal jadi Date, ukuran jadi nama enum Prisma, item dengan jumlah 0 dibuang.
+ *
+ * Warna sudah harus ada di database pada saat ini, jadi nama-namanya diambil
+ * dulu untuk dipakai pesan duplikat dan pengurutan. Warna yang tidak ada
+ * ditolak di sini, sebelum cek master yang lain.
  */
-export function siapSimpan(payload: {
+export async function siapSimpan(payload: {
   tanggal: string;
   jenis: Jenis;
   penjahitId: number;
   modelId: number;
-  warnaId: number;
   catatan?: string | null;
-  items: { ukuran: string; jumlah: unknown }[];
-}): RowSiapSimpan {
-  const items = normalisasiItems(payload.items).map((it) => ({
+  items: { warnaId: number; ukuran: string; jumlah: unknown }[];
+}): Promise<RowSiapSimpan> {
+  const db = getDb();
+  const warnaIds = [...new Set(payload.items.map((i) => i.warnaId))];
+  const warnaRows = await db.warna.findMany({
+    where: { id: { in: warnaIds } },
+    select: { id: true, nama: true },
+  });
+  const namaWarna = new Map(warnaRows.map((w) => [w.id, w.nama]));
+  const hilang = warnaIds.filter((id) => !namaWarna.has(id));
+  if (hilang.length > 0) {
+    throw badRequest(`Warna tidak ditemukan: ${hilang.map((id) => `#${id}`).join(", ")}.`);
+  }
+
+  const items = normalisasiItems(payload.items, namaWarna).map((it) => ({
+    warnaId: it.warnaId,
     // toEnumUkuran mengembalikan literal label yang narrower dari enum Prisma,
     // jadi butuh cast di sini.
     ukuran: toEnumUkuran(it.ukuran) as unknown as UkuranEnum,
@@ -53,20 +70,20 @@ export function siapSimpan(payload: {
     jenis: payload.jenis,
     penjahitId: payload.penjahitId,
     modelId: payload.modelId,
-    warnaId: payload.warnaId,
     catatan: payload.catatan?.trim() ? payload.catatan.trim() : null,
     items,
+    namaWarna,
   };
 }
 
 /**
- * Pastikan penjahit, model, warna ada. Saat membuat, semuanya harus aktif
- * (beserta pemilik dari model). Saat PUT, master yang sudah nonaktif tetap boleh
- * dipakai selama nilainya tidak berubah, supaya koreksi transaksi lama tidak
- * tertolak hanya karena master-nya sudah dinonaktifkan.
+ * Pastikan penjahit, model, dan semua warna ada. Saat membuat, semuanya harus
+ * aktif (beserta pemilik dari model). Saat PUT, master yang sudah nonaktif tetap
+ * boleh dipakai selama nilainya tidak berubah, supaya koreksi transaksi lama
+ * tidak tertolak hanya karena master-nya sudah dinonaktifkan.
  */
 export async function pastikanMaster(
-  ids: { penjahitId: number; modelId: number; warnaId: number },
+  ids: { penjahitId: number; modelId: number; warnaId: number[] },
   opts: { toleransiNonaktif: boolean } = { toleransiNonaktif: false },
 ): Promise<void> {
   const db = getDb();
@@ -76,19 +93,25 @@ export async function pastikanMaster(
       where: { id: ids.modelId },
       select: { id: true, aktif: true, pemilik: { select: { id: true, aktif: true } } },
     }),
-    db.warna.findUnique({ where: { id: ids.warnaId }, select: { id: true, aktif: true } }),
+    db.warna.findMany({ where: { id: { in: ids.warnaId } }, select: { id: true, nama: true, aktif: true } }),
   ]);
 
   if (!penjahit) throw badRequest("Penjahit tidak ditemukan.");
   if (!model) throw badRequest("Model baju tidak ditemukan.");
-  if (!warna) throw badRequest("Warna tidak ditemukan.");
+  if (warna.length !== new Set(ids.warnaId).size) {
+    const ada = new Set(warna.map((w) => w.id));
+    const hilang = [...new Set(ids.warnaId)].filter((id) => !ada.has(id));
+    throw badRequest(`Warna tidak ditemukan: ${hilang.map((id) => `#${id}`).join(", ")}.`);
+  }
 
   if (opts.toleransiNonaktif) return;
 
   if (!penjahit.aktif) throw badRequest("Penjahit yang dipilih sudah nonaktif.");
   if (!model.aktif) throw badRequest("Model baju yang dipilih sudah nonaktif.");
-  if (!warna.aktif) throw badRequest("Warna yang dipilih sudah nonaktif.");
   if (!model.pemilik.aktif) throw badRequest("Pemilik dari model yang dipilih sudah nonaktif.");
+  for (const w of warna) {
+    if (!w.aktif) throw badRequest(`Warna ${w.nama} sudah nonaktif.`);
+  }
 }
 
 export const SELECT_TRANSAKSI = {
@@ -99,20 +122,25 @@ export const SELECT_TRANSAKSI = {
   createdAt: true,
   penjahit: { select: { id: true, nama: true } },
   model: { select: { id: true, nama: true, pemilik: { select: { id: true, nama: true } } } },
-  warna: { select: { id: true, nama: true } },
-  items: { select: { ukuran: true, jumlah: true } },
+  items: { select: { warnaId: true, ukuran: true, jumlah: true, warna: { select: { nama: true } } } },
 } as const satisfies Prisma.TransaksiSelect;
 
 type BarisDariDb = Prisma.TransaksiGetPayload<{ select: typeof SELECT_TRANSAKSI }>;
 export type BarisTransaksi = BarisDariDb;
 
-/** Serialisasi untuk API: tanggal YYYY-MM-DD, ukuran label asli, plus total pcs. */
+/**
+ * Serialisasi untuk API: tanggal YYYY-MM-DD, ukuran label asli, warna ikut
+ * per item (bukan satu di header), plus total pcs.
+ */
 export function serialisasiTransaksi(t: BarisTransaksi) {
+  const namaWarna = new Map(t.items.map((it) => [it.warnaId, it.warna.nama]));
   const items = urutItems(
     t.items.map((it) => ({
+      warnaId: it.warnaId,
       ukuran: (toLabelUkuran(it.ukuran) ?? it.ukuran) as UkuranLabel,
       jumlah: it.jumlah,
     })),
+    namaWarna,
   );
   return {
     id: t.id,
@@ -122,8 +150,7 @@ export function serialisasiTransaksi(t: BarisTransaksi) {
     penjahit: t.penjahit,
     pemilik: t.model.pemilik,
     model: { id: t.model.id, nama: t.model.nama },
-    warna: t.warna,
-    items,
+    items: items.map((it) => ({ ...it, warna: { id: it.warnaId, nama: namaWarna.get(it.warnaId) ?? "" } })),
     totalPcs: items.reduce((s, i) => s + i.jumlah, 0),
   };
 }

@@ -85,9 +85,16 @@ export async function POST(request: Request) {
   return handle(async () => {
     await guardMutation(request);
     const body = transaksiSchema.parse(await readJson(request));
-    const row = siapSimpan(body);
+    const row = await siapSimpan(body);
 
-    await pastikanMaster(row, { toleransiNonaktif: false });
+    await pastikanMaster(
+      {
+        penjahitId: row.penjahitId,
+        modelId: row.modelId,
+        warnaId: [...new Set(row.items.map((i) => i.warnaId))],
+      },
+      { toleransiNonaktif: false },
+    );
 
     const db = getDb();
     // Nested create = satu operasi atomik; item ikut tersimpan atau tidak sama sekali.
@@ -97,9 +104,10 @@ export async function POST(request: Request) {
         jenis: row.jenis,
         penjahitId: row.penjahitId,
         modelId: row.modelId,
-        warnaId: row.warnaId,
         catatan: row.catatan,
-        items: { create: row.items },
+        items: {
+          create: row.items.map((it) => ({ warnaId: it.warnaId, ukuran: it.ukuran, jumlah: it.jumlah })),
+        },
       },
       select: SELECT_TRANSAKSI,
     });

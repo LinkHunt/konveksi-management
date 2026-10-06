@@ -46,6 +46,7 @@ export const masterPatchSchema = {
 export const jenisTransaksiSchema = z.enum(["SETORAN", "BAHAN_KELUAR"]);
 
 const itemSchema = z.object({
+  warnaId: z.number({ message: "Warna wajib dipilih." }).int().positive("Warna tidak valid."),
   ukuran: z.enum(UKURAN_LIST, {
     message: `Ukuran harus salah satu dari: ${UKURAN_LIST.join(", ")}.`,
   }),
@@ -60,24 +61,26 @@ export const transaksiSchema = z.object({
   jenis: jenisTransaksiSchema,
   penjahitId: z.number({ message: "Penjahit wajib dipilih." }).int().positive("Penjahit tidak valid."),
   modelId: z.number({ message: "Model wajib dipilih." }).int().positive("Model tidak valid."),
-  warnaId: z.number({ message: "Warna wajib dipilih." }).int().positive("Warna tidak valid."),
   catatan: z.string().trim().max(500, "Catatan maksimal 500 karakter.").nullish(),
   items: z
     .array(itemSchema, { message: "Item wajib diisi." })
-    .min(1, "Minimal satu baris ukuran dengan jumlah lebih dari 0.")
-    .max(20, "Maksimal 20 baris ukuran per transaksi."),
+    .min(1, "Minimal satu baris warna dan ukuran dengan jumlah lebih dari 0.")
+    .max(60, "Maksimal 60 baris warna dan ukuran per transaksi."),
 });
 
 export type TransaksiInput = z.infer<typeof transaksiSchema>;
 
 /**
  * Bersihkan item: buang jumlah 0 / kosong / negatif / bukan integer bulat.
- * Sisa minimal 1 baris, dan ukuran tidak boleh ganda.
+ * Sisa minimal 1 baris, dan kombinasi warna + ukuran tidak boleh sama dua kali
+ * dalam satu transaksi. Ukuran yang sama BOLEH muncul asal warnanya beda,
+ * karena satu pengambilan bahan bisa punya beberapa warna.
  */
 export function normalisasiItems(
-  items: { ukuran: string; jumlah: unknown }[],
-): { ukuran: (typeof UKURAN_LIST)[number]; jumlah: number }[] {
-  const hasil: { ukuran: (typeof UKURAN_LIST)[number]; jumlah: number }[] = [];
+  items: { warnaId: number; ukuran: string; jumlah: unknown }[],
+  namaWarna: Map<number, string>,
+): { warnaId: number; ukuran: (typeof UKURAN_LIST)[number]; jumlah: number }[] {
+  const hasil: { warnaId: number; ukuran: (typeof UKURAN_LIST)[number]; jumlah: number }[] = [];
   const seen = new Set<string>();
   for (const it of items) {
     const jumlah = typeof it.jumlah === "number" ? it.jumlah : Number(it.jumlah);
@@ -88,20 +91,39 @@ export function normalisasiItems(
     if (!isUkuranLabel(label)) {
       throw badRequest(`Ukuran tidak dikenal: ${label}. Gunakan: ${UKURAN_LIST.join(", ")}.`);
     }
-    if (seen.has(label)) {
-      throw badRequest(`Ukuran ${label} muncul lebih dari sekali.`);
+    const kunci = `${it.warnaId}|${label}`;
+    if (seen.has(kunci)) {
+      const nama = namaWarna.get(it.warnaId) ?? `warna #${it.warnaId}`;
+      throw badRequest(`${nama} ukuran ${label} muncul lebih dari sekali. Gabungkan jumlahnya jadi satu baris.`);
     }
-    seen.add(label);
-    hasil.push({ ukuran: label, jumlah });
+    seen.add(kunci);
+    hasil.push({ warnaId: it.warnaId, ukuran: label, jumlah });
   }
   if (hasil.length === 0) {
-    throw badRequest("Minimal satu baris ukuran dengan jumlah lebih dari 0.");
+    throw badRequest("Minimal satu baris warna dan ukuran dengan jumlah lebih dari 0.");
   }
   return hasil;
 }
 
-/** Urutkan item menurut urutan ukuran logis (XS..8L). */
-export function urutItems<T extends { ukuran: string }>(items: T[]): T[] {
+/**
+ * Urutkan item menurut warna, lalu ukuran logis (XS..8L). Urutan warna dipakai
+ * nama warna supaya item dengan warna sama selalu berdekatan, karena zod
+ * mempertahankan urutan payload dan urutannya tidak dijamin.
+ */
+export function urutItems<T extends { ukuran: string; warnaId: number }>(
+  items: T[],
+  namaWarna?: Map<number, string>,
+): T[] {
   const order = new Map<string, number>(UKURAN_LIST.map((u, i) => [u, i]));
-  return [...items].sort((a, b) => (order.get(a.ukuran) ?? 99) - (order.get(b.ukuran) ?? 99));
+  const orderWarna = new Map<number, number>();
+  if (namaWarna) {
+    [...namaWarna.keys()]
+      .sort((a, b) => (namaWarna.get(a) ?? "").localeCompare(namaWarna.get(b) ?? "", "id"))
+      .forEach((id, i) => orderWarna.set(id, i));
+  }
+  return [...items].sort(
+    (a, b) =>
+      (orderWarna.get(a.warnaId) ?? 99) - (orderWarna.get(b.warnaId) ?? 99) ||
+      (order.get(a.ukuran) ?? 99) - (order.get(b.ukuran) ?? 99),
+  );
 }

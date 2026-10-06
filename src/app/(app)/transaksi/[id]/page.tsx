@@ -26,7 +26,6 @@ export default async function EditTransaksiPage({
     jenis: t.jenis,
     penjahit: t.penjahit,
     model: t.model,
-    warna: t.warna,
     catatan: t.catatan,
     items: t.items,
   };

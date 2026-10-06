@@ -38,10 +38,11 @@ async function main(): Promise<void> {
 
     // Transaksi ikut terhapus kalau salah satu master yang dipakainya berawalan
     // TES-. Item terhapus otomatis lewat ON DELETE CASCADE di skema.
+    // Warna tidak lagi ada di header transaksi, jadi dicari lewat item.
     const or: Prisma.TransaksiWhereInput[] = [];
     if (penjahit.length) or.push({ penjahitId: { in: ids(penjahit) } });
     if (model.length) or.push({ modelId: { in: ids(model) } });
-    if (warna.length) or.push({ warnaId: { in: ids(warna) } });
+    if (warna.length) or.push({ items: { some: { warnaId: { in: ids(warna) } } } });
     if (pemilik.length) or.push({ model: { pemilikId: { in: ids(pemilik) } } });
 
     let hapusTransaksi = 0;

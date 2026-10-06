@@ -95,7 +95,8 @@ export async function jumlahTransaksiMemakai(
     return db.transaksi.count({ where: { modelId: { in: models.map((m) => m.id) } } });
   }
   if (entity === "model") return db.transaksi.count({ where: { modelId: id } });
-  if (entity === "warna") return db.transaksi.count({ where: { warnaId: id } });
+  // Warna tidak lagi ada di header transaksi, jadi dipakaiunya dicek lewat item.
+  if (entity === "warna") return db.transaksiItem.count({ where: { warnaId: id } });
   return db.transaksi.count({ where: { penjahitId: id } });
 }
 

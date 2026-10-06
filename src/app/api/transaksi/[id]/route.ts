@@ -37,25 +37,30 @@ export async function PUT(request: Request, { params }: Ctx) {
     await guardMutation(request);
     const id = await parseId(params);
     const body = transaksiSchema.parse(await readJson(request));
-    const row = siapSimpan(body);
+    const row = await siapSimpan(body);
 
     const db = getDb();
     const lama = await db.transaksi.findUnique({
       where: { id },
-      select: { penjahitId: true, modelId: true, warnaId: true },
+      select: { penjahitId: true, modelId: true, items: { select: { warnaId: true } } },
     });
     if (!lama) throw notFound("Transaksi tidak ditemukan.");
+
+    const warnaBaru = [...new Set(row.items.map((i) => i.warnaId))];
+    const warnaLama = [...new Set(lama.items.map((i) => i.warnaId))];
 
     // Master nonaktif hanya boleh tetap dipakai kalau nilai master-nya tidak
     // berubah. Kalau pemakai menukar ke master lain, master baru harus aktif.
     const berubahPenjahit = lama.penjahitId !== row.penjahitId;
     const berubahModel = lama.modelId !== row.modelId;
-    const berubahWarna = lama.warnaId !== row.warnaId;
+    const warnaBaruMuncul =
+      warnaBaru.some((w) => !warnaLama.includes(w)) || warnaBaru.length !== warnaLama.length;
 
-    if (berubahPenjahit || berubahModel || berubahWarna) {
-      await pastikanMaster(row, { toleransiNonaktif: false });
+    const target = { penjahitId: row.penjahitId, modelId: row.modelId, warnaId: warnaBaru };
+    if (berubahPenjahit || berubahModel || warnaBaruMuncul) {
+      await pastikanMaster(target, { toleransiNonaktif: false });
     } else {
-      await pastikanMaster(row, { toleransiNonaktif: true });
+      await pastikanMaster(target, { toleransiNonaktif: true });
     }
 
     // Ganti header + seluruh item dalam satu transaksi database, supaya tidak
@@ -69,9 +74,10 @@ export async function PUT(request: Request, { params }: Ctx) {
           jenis: row.jenis,
           penjahitId: row.penjahitId,
           modelId: row.modelId,
-          warnaId: row.warnaId,
           catatan: row.catatan,
-          items: { create: row.items },
+          items: {
+            create: row.items.map((it) => ({ warnaId: it.warnaId, ukuran: it.ukuran, jumlah: it.jumlah })),
+          },
         },
         select: SELECT_TRANSAKSI,
       });

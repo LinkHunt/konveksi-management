@@ -87,7 +87,7 @@ export async function hitungSisa(
       b."nama"           AS "pemilikNama",
       t."modelId"        AS "modelId",
       m."nama"           AS "modelNama",
-      t."warnaId"        AS "warnaId",
+      ti."warnaId"       AS "warnaId",
       w."nama"           AS "warnaNama",
       ti."ukuran"::text  AS "ukuran",
       COALESCE(SUM(ti."jumlah") FILTER (WHERE t."jenis" = 'BAHAN_KELUAR'), 0) AS "bahanKeluar",
@@ -97,14 +97,14 @@ export async function hitungSisa(
     JOIN "Penjahit" pj ON pj."id" = t."penjahitId"
     JOIN "ModelBaju" m ON m."id" = t."modelId"
     JOIN "Pemilik" b ON b."id" = m."pemilikId"
-    JOIN "Warna" w ON w."id" = t."warnaId"
+    JOIN "Warna" w ON w."id" = ti."warnaId"
     WHERE
       (${filter.penjahitId ?? null}::int IS NULL OR t."penjahitId" = ${filter.penjahitId ?? null})
       AND (${filter.pemilikId ?? null}::int IS NULL OR m."pemilikId" = ${filter.pemilikId ?? null})
       AND (${filter.modelId ?? null}::int IS NULL OR t."modelId" = ${filter.modelId ?? null})
-      AND (${filter.warnaId ?? null}::int IS NULL OR t."warnaId" = ${filter.warnaId ?? null})
+      AND (${filter.warnaId ?? null}::int IS NULL OR ti."warnaId" = ${filter.warnaId ?? null})
     GROUP BY t."penjahitId", pj."nama", m."pemilikId", b."nama", t."modelId", m."nama",
-             t."warnaId", w."nama", ti."ukuran"
+             ti."warnaId", w."nama", ti."ukuran"
   `) as unknown as RawRow[];
 
   const orderUkuran = new Map<string, number>(UKURAN_LIST.map((u, i) => [u, i]));

@@ -61,9 +61,11 @@ model ModelBaju {
 }
 
 model Warna {
-  id        Int         @id @default(autoincrement())
-  nama      String      @unique
-  aktif     Boolean     @default(true)
+  id        Int             @id @default(autoincrement())
+  nama      String          @unique
+  aktif     Boolean         @default(true)
+  items     TransaksiItem[]
+  // Relasi ke Transaksi.warnaId yang nullable, hanya dibaca kode lama.
   transaksi Transaksi[]
 }
 
@@ -75,7 +77,14 @@ model Penjahit {
 }
 
 // Satu baris per kejadian (bahan keluar atau setoran).
-// Jumlah per ukuran disimpan di TransaksiItem.
+// Jumlah per warna + ukuran disimpan di TransaksiItem.
+//
+// "warnaId" di header sengaja nullable dan hanya dibaca kode versi lama. Codespace
+// dan Worker Cloudflare memakai satu database Neon yang sama, jadi selama migrasi
+// warna ke item belum selesai di-released, dua versi kode harus bisa INSERT ke
+// tabel yang sama. Trigger di database yang mengisi kolom ini dari
+// TransaksiItem (kode baru) dan sebaliknya. Hapus setelah Worker sudah jalan
+// kode baru.
 model Transaksi {
   id         Int             @id @default(autoincrement())
   tanggal    DateTime        @db.Date
@@ -84,8 +93,8 @@ model Transaksi {
   penjahit   Penjahit        @relation(fields: [penjahitId], references: [id])
   modelId    Int
   model      ModelBaju       @relation(fields: [modelId], references: [id])
-  warnaId    Int
-  warna      Warna           @relation(fields: [warnaId], references: [id])
+  warnaId    Int?
+  warna      Warna?          @relation(fields: [warnaId], references: [id])
   catatan    String?
   createdAt  DateTime        @default(now())
   items      TransaksiItem[]
@@ -94,14 +103,23 @@ model Transaksi {
   @@index([penjahitId, jenis])
 }
 
+// Warna ada di item, bukan di header. Satu pengambilan bahan sering punya
+// lebih dari satu warna, tiap warna dengan ukuran sendiri, jadi warna harus
+// ikut per baris. Contoh: Merah XL=4 + Merah 3L=4 + Toska L=20 dalam satu
+// transaksi.
 model TransaksiItem {
   id          Int       @id @default(autoincrement())
   transaksiId Int
   transaksi   Transaksi @relation(fields: [transaksiId], references: [id], onDelete: Cascade)
+  warnaId     Int
+  warna       Warna     @relation(fields: [warnaId], references: [id])
   ukuran      Ukuran
-  jumlah      Int       // pcs, harus > 0
+  jumlah      Int // pcs, harus > 0
 
-  @@unique([transaksiId, ukuran])
+  // Warna + ukuran tidak boleh sama dua kali dalam satu transaksi, tapi
+  // ukuran yang sama boleh muncul asal warnanya beda.
+  @@unique([transaksiId, warnaId, ukuran])
+  @@index([warnaId])
 }
 
 // Catatan: "sisa belum disetor" dihitung, bukan disimpan.

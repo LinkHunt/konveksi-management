@@ -15,7 +15,13 @@ import {
   type BarisBasic,
   type BarisModel,
 } from "@/lib/client-api";
-import UkuranTable, { kosongkan, totalPcs, type BarisUkuran } from "./UkuranTable";
+import WarnaBlock, {
+  blokBaru,
+  kosongkan,
+  kosongkanSemua,
+  totalPcs,
+  type BlokWarna,
+} from "./WarnaBlock";
 import SisaPenjahitPanel, { kelompokkanSisa, type Kombinasi } from "./SisaPenjahitPanel";
 
 export type JenisTransaksi = "SETORAN" | "BAHAN_KELUAR";
@@ -26,9 +32,9 @@ export type TransaksiUntukEdit = {
   jenis: JenisTransaksi;
   penjahit: { id: number; nama: string };
   model: { id: number; nama: string };
-  warna: { id: number; nama: string };
   catatan: string | null;
-  items: { ukuran: string; jumlah: number }[];
+  /** Item per warna, sudah dikelompokkan server. */
+  items: { warnaId: number; ukuran: string; jumlah: number }[];
 };
 
 type Master = {
@@ -83,15 +89,28 @@ export default function TransaksiForm({
   const [tanggal, setTanggal] = useState(edit?.tanggal ?? tanggalAwal);
   const [penjahitId, setPenjahitId] = useState(String(edit?.penjahit.id ?? ""));
   const [modelId, setModelId] = useState(String(edit?.model.id ?? ""));
-  const [warnaId, setWarnaId] = useState(String(edit?.warna.id ?? ""));
   const [catatan, setCatatan] = useState(edit?.catatan ?? "");
-  const [baris, setBaris] = useState<BarisUkuran[]>(() => {
-    if (!edit) return kosongkan();
-    // Isi hanya ukuran yang ada di transaksi, sisanya tetap kosong.
-    const peta = new Map(edit.items.map((i) => [i.ukuran, i.jumlah]));
-    return kosongkan().map((b) => ({
-      ukuran: b.ukuran,
-      jumlah: peta.has(b.ukuran) ? String(peta.get(b.ukuran)) : "",
+  const [blok, setBlok] = useState<BlokWarna[]>(() => {
+    if (!edit) return kosongkanSemua();
+    // Satu blok per warna. Item di server sudah diurutkan per warna, tapi
+    // dikelompokkan ulang di sini supaya tidak bergantung pada urutan itu.
+    const perWarna = new Map<number, Map<string, number>>();
+    for (const it of edit.items) {
+      let m = perWarna.get(it.warnaId);
+      if (!m) {
+        m = new Map();
+        perWarna.set(it.warnaId, m);
+      }
+      m.set(it.ukuran, it.jumlah);
+    }
+    if (perWarna.size === 0) return kosongkanSemua();
+    return [...perWarna.entries()].map(([wId, isi]) => ({
+      warnaId: String(wId),
+      // Ukuran yang tidak ada di transaksi tetap kosong, bukan 0.
+      baris: kosongkan().map((b) => ({
+        ukuran: b.ukuran,
+        jumlah: isi.has(b.ukuran) ? String(isi.get(b.ukuran)) : "",
+      })),
     }));
   });
 
@@ -169,28 +188,44 @@ export default function TransaksiForm({
     sisaUntuk !== Number(penjahitId) &&
     sisaGagal === null;
 
-  const total = totalPcs(baris);
+  const total = totalPcs(blok);
+  const warnaTerpilih = blok.map((b) => b.warnaId).filter((w) => w !== "");
+  // Warna boleh sama dalam dua blok selama tidak ada ukuran yang sama terisi
+  // dua kali untuk warna itu; sisanya ditolak server. Yang dicek di sini cuma
+  // yang tidak bisa dikirim sama sekali: warna kosong dengan isi != 0.
+  const warnaKosongBerisi = blok.some(
+    (b) => b.warnaId === "" && b.baris.some((x) => Number.parseInt(x.jumlah, 10) > 0),
+  );
   const bolehSimpan =
     Boolean(tanggal) &&
     penjahitId !== "" &&
     modelId !== "" &&
-    warnaId !== "" &&
+    warnaTerpilih.length > 0 &&
+    !warnaKosongBerisi &&
     total > 0 &&
     !simpan.gala;
 
   /*
-   * Ketuk baris sisa: isi dropdown dan angka per ukuran sekaligus.
+   * Ketuk kartu sisa: isi model, lalu satu blok per warna yang ada di kartu itu.
    *
-   * Ukuran yang tidak ada di baris sisa dikosongkan, bukan diisi 0, supaya
-   * angka yang sudah diketik user sebelum memilih penjahit tidak ikut hilang
-   * tanpa sebab. Form wajib minimal satu ukuran berisi, jadi kalau baris sisa
-   * tidak punya ukuran yang bisa dipakai itu kelihatan dari total 0.
+   * Blok warna yang diketik manual sebelum memilih penjahit ikut hilang, karena
+   * isi form digantikan seluruhnya. Ini yang diharapkan: kartu sisa adalah
+   * shortcut untuk mengisi dari nol, bukan penumpukan.
    */
   function pakaiSisa(k: Kombinasi) {
-    const peta = new Map(k.ukuran.map((u) => [u.label, u.sisa]));
     setModelId(String(k.modelId));
-    setWarnaId(String(k.warnaId));
-    setBaris(kosongkan().map((b) => ({ ukuran: b.ukuran, jumlah: String(peta.get(b.ukuran) ?? "") })));
+    setBlok(
+      k.warna.map((w) => {
+        const peta = new Map(w.ukuran.map((u) => [u.label, u.sisa]));
+        return {
+          warnaId: String(w.warnaId),
+          baris: kosongkan().map((b) => ({
+            ukuran: b.ukuran,
+            jumlah: peta.has(b.ukuran) ? String(peta.get(b.ukuran)) : "",
+          })),
+        };
+      }),
+    );
   }
 
   async function submit(e: React.FormEvent) {
@@ -203,12 +238,18 @@ export default function TransaksiForm({
       jenis: edit ? edit.jenis : jenis,
       penjahitId: Number(penjahitId),
       modelId: Number(modelId),
-      warnaId: Number(warnaId),
       catatan: catatan.trim() || null,
-      // Server membuang jumlah 0 diam-diam, jadi cukup kirim yang isinya angka.
-      items: baris
-        .filter((b) => Number.parseInt(b.jumlah, 10) > 0)
-        .map((b) => ({ ukuran: b.ukuran, jumlah: Number.parseInt(b.jumlah, 10) })),
+      // Ratakan blok warna jadi satu daftar item. Server membuang jumlah 0
+      // diam-diam, jadi cukup kirim yang isinya angka.
+      items: blok.flatMap((b) =>
+        b.baris
+          .filter((x) => Number.parseInt(x.jumlah, 10) > 0)
+          .map((x) => ({
+            warnaId: Number(b.warnaId),
+            ukuran: x.ukuran,
+            jumlah: Number.parseInt(x.jumlah, 10),
+          })),
+      ),
     };
 
     const hasil =
@@ -257,7 +298,7 @@ export default function TransaksiForm({
         <SisaPenjahitPanel
           nama={penjahitTerpilih.nama}
           kombinasi={sisaPenjahit ?? []}
-          terpilih={{ modelId: Number(modelId), warnaId: Number(warnaId) }}
+          terpilih={{ modelId: Number(modelId), warnaId: warnaTerpilih.map(Number) }}
           onPilih={pakaiSisa}
         />
       ) : null}
@@ -310,18 +351,6 @@ export default function TransaksiForm({
               ))}
             </Select>
           </Field>
-
-          <Field label="Warna" htmlFor="warna">
-            <Select id="warna" value={warnaId} onChange={(e) => setWarnaId(e.target.value)} required>
-              <option value="">Pilih warna</option>
-              {master.warna.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.nama}
-                  {w.aktif ? "" : " (nonaktif)"}
-                </option>
-              ))}
-            </Select>
-          </Field>
         </div>
 
         <Field label="Catatan" htmlFor="catatan" hint={`${catatan.length}/500, opsional`}>
@@ -344,7 +373,21 @@ export default function TransaksiForm({
             Total <span className="font-semibold tabular-nums text-teks">{total}</span> pcs
           </span>
         </div>
-        <UkuranTable baris={baris} onChange={setBaris} />
+        {warnaKosongBerisi ? (
+          <div className="mb-3">
+            <Alert tone="warning">
+              Ada angka yang terisi tapi warnanya belum dipilih. Pilih warna dulu atau kosongkan
+              angkanya.
+            </Alert>
+          </div>
+        ) : null}
+        <WarnaBlock
+          blok={blok}
+          semua={master.warna}
+          onUbah={setBlok}
+          onTambah={() => setBlok([...blok, blokBaru()])}
+          onHapus={(i) => setBlok(blok.filter((_, j) => j !== i))}
+        />
       </Card>
 
       {simpan.pesan ? <Alert tone="error">{simpan.pesan}</Alert> : null}
