@@ -37,15 +37,19 @@ export default function KurangPanel({ awal }: { awal: KotakKurang[] }) {
   }, [awal]);
 
   // Kolom gambar per model: Warna + ukuran + Total. Ukuran dari kotak pertama.
+  // Header kolom HARUS selaras dengan isi baris: kalau ada kolom "Warna" di
+  // header, baris juga harus diawali warnaNama — dulu header Model muncul
+  // kondisional sedangkan warnaNama selalu ikut, jadi semua sel geser satu
+  // kolom (nama warna jatuh di kolom ukuran, tinggi gambar meledak karena
+  // nama warna di-wrap di kolom sempit).
   function siapkanModel(g: (typeof perModel)[number]) {
     const kolom = [
-      ...(g.pemilikNama ? [{ label: "Model", lebarMin: 110 }] : []),
+      { label: "Warna", lebarMin: 90 },
       ...(g.kotak[0]?.ukuran.map((u) => ({ label: u.label, align: "center" as const, lebarMin: 36 })) ??
         []),
       { label: "Total", align: "right" as const, lebarMin: 56 },
     ];
     const baris = g.kotak.map((k) => [
-      ...(g.pemilikNama ? [k.modelNama] : []),
       k.warnaNama,
       ...k.ukuran.map((u) => u.kurang),
       k.total,
