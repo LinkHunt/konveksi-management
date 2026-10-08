@@ -17,3 +17,10 @@ package.patch*.py
 
 # Snapshot data usaha — tidak boleh ikut commit.
 backup-*.json
+# --- junk lokal & snapshot DB ---
+*.db
+probe.cjs
+counts.cjs
+isi.cjs
+bikin-db.cjs
+verif-db.cjs
