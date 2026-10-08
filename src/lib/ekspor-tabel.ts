@@ -71,6 +71,7 @@ const TINGGI_HEADER = 40;
 const TINGGI_BARIS_TEKS = 18;
 const TINGGI_SUB = 18;
 const TINGGI_JUDUL = 26;
+const TINGGI_KAKI_BARIS = 16;
 
 // Bentuk font: "berat ukuran" saja, keluarga ditambahkan terpisah supaya
 // tidak ada spasi ganda yang bikin parser canvas menolak seluruh string.
@@ -291,8 +292,18 @@ export async function unduhTabelGambar(data: DataEkspor, namaFile?: string): Pro
 
   // Judul juga bisa kebungkus (misal ada nama model yang panjang), biar tidak
   // meluber keluar sisi kanvas. Lebar maks sumber: lebar total kolom.
-  const barisJudul = bungkusTeks(uctx, data.judul, Math.min(lebarTotal(lebarKolom), 900));
+  // Ukur dengan font judul (700 15px), bukan font isi — teks digambar pakai
+  // font judul; kalau diukur pakai font isi hasilnya kekecilan, judul tidak
+  // kebungkus dan kepotong di tepi kanvas.
+  setFont(uctx, F_JUDUL, tema.font);
+  const barisJudul = bungkusTeks(uctx, data.judul, lebarTotal(lebarKolom));
   const tambahTinggiJudul = (barisJudul.length - 1) * TINGGI_JUDUL;
+
+  // Subjudul (nama pemilik) juga — ukur dengan font sub + dibungkus, supaya
+  // nama panjang tidak keluar tepi.
+  setFont(uctx, F_SUB, tema.font);
+  const barisSub = data.subjudul ? bungkusTeks(uctx, data.subjudul, lebarTotal(lebarKolom)) : [];
+  const tambahTinggiSub = Math.max(barisSub.length - 1, 0) * TINGGI_SUB;
 
   // Tinggi baris: berapa baris teks terpanjang di baris itu, minimum setara
   // satu baris teks plus ruang napas.
@@ -302,10 +313,41 @@ export async function unduhTabelGambar(data: DataEkspor, namaFile?: string): Pro
     return Math.max(TINGGI_BARIS_MIN, maks * TINGGI_BARIS_TEKS + 18);
   });
 
+  // ---- fase 1c: susun kaki (catatan + waktu cetak) ----
+  // Satu baris kalau muat di lebar tabel; kalau tidak, waktu cetak turun ke
+  // baris berikut. Dulu digambar berdampingan tanpa cek lebar, jadi pada
+  // tabel sempit "Dicetak ..." kepotong di tepi kanvas.
+  setFont(uctx, F_KAKI, tema.font);
+  const waktu = new Date().toLocaleString("id-ID", { dateStyle: "long", timeStyle: "short" });
+  const capWaktu = `Dicetak ${waktu}`;
+  const lebarMaksKaki = lebarTotal(lebarKolom);
+  const barisKaki: { teks: string; dx: number }[][] = [];
+  if (
+    data.catatan &&
+    uctx.measureText(data.catatan).width + 16 + uctx.measureText(capWaktu).width <=
+      lebarMaksKaki
+  ) {
+    barisKaki.push([
+      { teks: data.catatan, dx: 0 },
+      { teks: capWaktu, dx: 16 },
+    ]);
+  } else {
+    if (data.catatan) {
+      for (const t of bungkusTeks(uctx, data.catatan, lebarMaksKaki)) {
+        barisKaki.push([{ teks: t, dx: 0 }]);
+      }
+    }
+    barisKaki.push([{ teks: capWaktu, dx: 0 }]);
+  }
+
   // ---- fase 2: susun ukuran kanvas ----
   const tinggiKepala =
-    PAD_Y + TINGGI_JUDUL + tambahTinggiJudul + (data.subjudul ? TINGGI_SUB : 0) + 12;
-  const tinggiKaki = 10 + 16 + PAD_Y;
+    PAD_Y +
+    TINGGI_JUDUL +
+    tambahTinggiJudul +
+    (barisSub.length > 0 ? TINGGI_SUB + tambahTinggiSub : 0) +
+    12;
+  const tinggiKaki = 10 + barisKaki.length * TINGGI_KAKI_BARIS + PAD_Y;
   const tinggiTotalCss =
     tinggiKepala + TINGGI_HEADER + tinggiBaris.reduce((s, v) => s + v, 0) + tinggiKaki;
   const lebarTotalCss = lebarTotal(lebarKolom) + PAD_X * 2;
@@ -334,11 +376,13 @@ export async function unduhTabelGambar(data: DataEkspor, namaFile?: string): Pro
     ctx.fillText(lapisan, x0, y);
     y += TINGGI_JUDUL;
   }
-  if (data.subjudul) {
+  if (barisSub.length > 0) {
     setFont(ctx, F_SUB, tema.font);
     ctx.fillStyle = tema.teksLembut;
-    ctx.fillText(data.subjudul, x0, y);
-    y += TINGGI_SUB;
+    for (const lapisan of barisSub) {
+      ctx.fillText(lapisan, x0, y);
+      y += TINGGI_SUB;
+    }
   }
   y += 12;
 
@@ -423,19 +467,20 @@ export async function unduhTabelGambar(data: DataEkspor, namaFile?: string): Pro
   ctx.stroke();
   ctx.strokeRect(x0 + 0.5, yTabel + 0.5, lebarTabel - 1, yBaris - yTabel - 1);
 
-  // kaki: asal data + waktu cetak
+  // kaki: asal data + waktu cetak — susunan baris sudah dihitung fase 1c
   setFont(ctx, F_KAKI, tema.font);
   ctx.fillStyle = tema.teksLembut;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  const yKaki = yBaris + 10;
-  const waktu = new Date().toLocaleString("id-ID", { dateStyle: "long", timeStyle: "short" });
-  if (data.catatan) {
-    ctx.fillText(data.catatan, x0, yKaki);
-    const lebarCap = ctx.measureText(data.catatan).width;
-    ctx.fillText(`Dicetak ${waktu}`, x0 + lebarCap + 16, yKaki);
-  } else {
-    ctx.fillText(`Dicetak ${waktu}`, x0, yKaki);
+  let yKaki = yBaris + 10;
+  for (const baris of barisKaki) {
+    let x = x0;
+    for (const seg of baris) {
+      x += seg.dx;
+      ctx.fillText(seg.teks, x, yKaki);
+      x += ctx.measureText(seg.teks).width;
+    }
+    yKaki += TINGGI_KAKI_BARIS;
   }
 
   // ---- simpan ----
