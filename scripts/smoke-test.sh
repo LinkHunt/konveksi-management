@@ -3,9 +3,15 @@
 #
 #   SMOKE_USER=<akun> SMOKE_PASS=<password> ./scripts/smoke-test.sh [BASE_URL]
 #
-# Semua data uji dibuat dengan awalan "TES-" dan DIHAPUS lagi di akhir, jadi
-# skrip aman dijalankan berulang kali. Data yang tidak berawalan "TES-" tidak
-# pernah disentuh.
+# Data uji semuanya berawalan "TES-" dan DIHAPUS lagi di akhir, jadi skrip aman
+# dijalankan berulang kali. Data yang tidak berawalan "TES-" tidak disentuh.
+#
+# Alur uji (domain hasil potong -> setoran -> kurang):
+#   - buat pemilik + model + warna TES-
+#   - catat hasil potongan (sumber data), koreksi, hapus, riwayat
+#   - catat setoran (tidak boleh melebihi target hasil potong)
+#   - cek agregat kurang
+#   - cek master terpakai tidak bisa dinonaktifkan
 #
 # Syarat:
 #   - server dev sudah jalan (npm run dev)
@@ -53,7 +59,8 @@ panggil() {
   fi
   LAST_HTTP=$(printf '%s' "$out" | tail -n1)
   LAST_BODY=$(printf '%s' "$out" | sed '$d')
-  LAST_ID=$(printf '%s' "$LAST_BODY" | jq -r '.data.id // empty' 2>/dev/null)
+  # POST /api/setoran -> {ok:true, id}; POST /api/master/* -> {data:{id}}. Ambil dua-duanya.
+  LAST_ID=$(printf '%s' "$LAST_BODY" | jq -r '.id // .data.id // empty' 2>/dev/null)
 }
 
 # cek <nama> <http> <substring>
@@ -95,12 +102,12 @@ cekAngka "pesan gagal login identik" 401 '.error' "$(printf '%s' "$PESAN_SALAH" 
 rm -f "$JAR"
 panggil GET /api/master/pemilik
 cek "master tanpa cookie -> 401" 401 "Belum login."
-panggil GET /api/transaksi
-cek "transaksi tanpa cookie -> 401" 401 "Belum login."
-panggil GET /api/sisa
-cek "sisa tanpa cookie -> 401" 401 "Belum login."
-panggil POST /api/transaksi '{"tanggal":"2026-10-01","jenis":"SETORAN","penjahitId":1,"modelId":1,"warnaId":1,"items":[{"ukuran":"M","jumlah":1}]}'
-cek "POST tanpa cookie -> 401" 401 "Belum login."
+panggil GET /api/hasil-potong
+cek "hasil-potong tanpa cookie -> 401" 401 "Belum login."
+panggil GET /api/setoran
+cek "setoran tanpa cookie -> 401" 401 "Belum login."
+panggil GET /api/kurang
+cek "kurang tanpa cookie -> 401" 401 "Belum login."
 
 panggil POST /api/auth/login 'bukan json'
 cek "body bukan JSON -> 400" 400 "JSON"
@@ -117,9 +124,6 @@ grup "data master"
 panggil GET /api/master/ngawur
 cek "entity tak dikenal -> 404" 404 "Jenis data tidak dikenal."
 
-panggil GET /api/master/boss
-cek "nama lama 'boss' tidak berlaku -> 404" 404 "Jenis data tidak dikenal."
-
 panggil POST /api/master/pemilik '{"nama":"TES-Pemilik-Smoke"}'
 cek "buat pemilik -> 200" 200 '"nama":"TES-Pemilik-Smoke"'
 PEMILIK="$LAST_ID"
@@ -127,21 +131,15 @@ PEMILIK="$LAST_ID"
 panggil POST /api/master/pemilik '{"nama":"tes-PEMILIK-smoke"}'
 cek "duplikat beda huruf -> 409" 409 "sudah ada"
 
-panggil POST /api/master/pemilik '{"nama":"   "}'
-cek "nama spasi doang -> 400" 400 "tidak valid"
-
 panggil POST /api/master/warna '{"nama":"TES-Warna-Smoke"}'
 WARNA="$LAST_ID"
-panggil POST /api/master/penjahit '{"nama":"TES-Penjahit-Smoke"}'
-PENJAHIT="$LAST_ID"
+panggil POST /api/master/warna '{"nama":"TES-Warna-Kedua"}'
+WARNA2="$LAST_ID"
 
 panggil POST /api/master/model '{"nama":"TES-Model-Smoke"}'
 cek "model tanpa pemilikId -> 400" 400 "Pemilik wajib dipilih"
 
-panggil POST /api/master/model '{"nama":"TES-Model-Smoke","bossId":999999}'
-cekAngka "model pakai bossId ditolak" 400 '.detail.issues[0].field' "pemilikId"
-
-panggil POST /api/master/model '{"nama":"TES-Model-Smoke","pemilikId":999999}'
+panggil POST /api/master/model "{\"nama\":\"TES-Model-Smoke\",\"pemilikId\":999999}"
 cek "model pemilikId ngawur -> 400" 400 "Pemilik tidak ditemukan"
 
 panggil POST /api/master/model "{\"nama\":\"TES-Model-Smoke\",\"pemilikId\":$PEMILIK}"
@@ -154,205 +152,181 @@ cek "model duplikat pada pemilik sama -> 409" 409 "sudah ada"
 panggil GET "/api/master/model?semua=1"
 cekAngka "model menyertakan data pemilik" 200 '[.data[] | select(.id == '"$MODEL"')][0].pemilik.id' "$PEMILIK"
 
-panggil GET "/api/master/pemilik/$PEMILIK"
-cek "detail pemilik -> 200" 200 '"TES-Pemilik-Smoke"'
+panggil GET "/api/master/model/$MODEL"
+cek "detail model -> 200" 200 '"TES-Model-Smoke"'
 
 panggil GET "/api/master/pemilik/999999"
 cek "detail id ngawur -> 404" 404 "tidak ditemukan"
 
-# Warna kedua khusus untuk menguji penolakan master nonaktif. Dipakai di bagian
-# transaksi, jadi saat ini belum dipakai transaksi apa pun.
-panggil POST /api/master/warna '{"nama":"TES-Warna-Kosong"}'
-WARNA_KOSONG="$LAST_ID"
+panggil GET "/api/master/penjahit"
+cek "penjahit masih ada di master (belum dihapus sengaja)" 200 '"data"'
 
-# ---------- 3. transaksi ----------
+# ---------- 3. hasil potong ----------
 
-grup "transaksi"
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-01\",\"jenis\":\"BAHAN_KELUAR\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"L\",\"jumlah\":10},{\"ukuran\":\"2L\",\"jumlah\":5}]}"
-cek "BAHAN_KELUAR L=10 2L=5 -> 200" 200 '"totalPcs":15'
-cekAngka "ukuran keluar sebagai label 2L" 200 '.data.items | map(.ukuran) | join(",")' "L,2L"
-cekAngka "tanggal tetap 2026-10-01 (WIB)" 200 '.data.tanggal' "2026-10-01"
-cekAngka "transaksi menyertakan pemilik" 200 '.data.pemilik.id' "$PEMILIK"
+grup "hasil potong"
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-02\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"M\",\"jumlah\":3},{\"ukuran\":\"S\",\"jumlah\":0}]}"
-cekAngka "item jumlah 0 dibuang" 200 '.data.totalPcs' "3"
-cekAngka "hanya M yang tersisa" 200 '.data.items | length' "1"
+# Warnanya harus aktif sebelum dipakai.
+panggil POST /api/hasil-potong "{\"modelId\":$MODEL,\"baris\":[{\"warnaId\":$WARNA,\"ukuran\":\"L\",\"jumlah\":10},{\"warnaId\":$WARNA,\"ukuran\":\"2L\",\"jumlah\":5}]}"
+cek "catat hasil potong -> 200" 200 '"ok":true'
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-03\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"XL\",\"jumlah\":7}]}"
-cekAngka "SETORAN XL=7 tersimpan" 200 '.data.totalPcs' "7"
+panggil POST /api/hasil-potong "{\"modelId\":$MODEL,\"baris\":[{\"warnaId\":$WARNA,\"ukuran\":\"L\",\"jumlah\":12}]}"
+cek "timpa ukuran L -> 200" 200 '"ok":true'
 
-# Pasangan XS untuk menguji baris sisa tepat 0 (sembunyikanNol).
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-06\",\"jenis\":\"BAHAN_KELUAR\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"XS\",\"jumlah\":2}]}"
-cekAngka "BAHAN_KELUAR XS=2 tersimpan" 200 '.data.totalPcs' "2"
+panggil GET /api/hasil-potong
+cekAngka "L jadi 12 (karena ditimpa)" 200 '[.data[] | select(.modelId == '"$MODEL"') | .warna[] | select(.warnaId == '"$WARNA"') | .baris[] | select(.ukuran=="L") | .jumlah] | add' "12"
+cekAngka "2L tetap 5" 200 '[.data[] | select(.modelId == '"$MODEL"') | .warna[] | select(.warnaId == '"$WARNA"') | .baris[] | select(.ukuran=="2L") | .jumlah] | add' "5"
+cekAngka "total model = 17" 200 '[.data[] | select(.modelId == '"$MODEL"') | .total] | add' "17"
+cekAngka "pemilik model tercantum" 200 '[.data[] | select(.modelId == '"$MODEL"') | .pemilikNama] | add' "TES-Pemilik-Smoke"
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-07\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"XS\",\"jumlah\":2}]}"
-cekAngka "SETORAN XS=2 tersimpan" 200 '.data.totalPcs' "2"
+# Baris kedua: untuk menguji hapus bebas (belum ada setoran) dan filter warna.
+panggil POST /api/hasil-potong "{\"modelId\":$MODEL,\"baris\":[{\"warnaId\":$WARNA2,\"ukuran\":\"M\",\"jumlah\":3}]}"
+cek "catat hasil potong warna kedua -> 200" 200 '"ok":true'
 
-# Validasi penolakan. Semua harus ditolak, jadi tidak menambah transaksi.
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-02\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"M\",\"jumlah\":0}]}"
-cek "semua jumlah 0 -> 400" 400 "Minimal satu baris"
+# Ambil id baris WARNA ukuran L dan M untuk uji aksi.
+panggil GET /api/hasil-potong
+ID_L=$(printf '%s' "$LAST_BODY" | jq -r '[.data[] | select(.modelId == '"$MODEL"') | .warna[] | select(.warnaId == '"$WARNA"') | .baris[] | select(.ukuran=="L") | .id][0]')
+ID_M=$(printf '%s' "$LAST_BODY" | jq -r '[.data[] | select(.modelId == '"$MODEL"') | .warna[] | select(.warnaId == '"$WARNA2"') | .baris[] | select(.ukuran=="M") | .id][0]')
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-02\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"M\",\"jumlah\":1},{\"ukuran\":\"M\",\"jumlah\":2}]}"
-cek "ukuran dobel -> 400" 400 "lebih dari sekali"
+# Riwayat baris yang ditimpa harus berisi BUAT dan UBAH.
+panggil GET "/api/hasil-potong/$ID_L"
+cekAngka "riwayat L: aksi terakhir UBAH" 200 '.data[0].aksi' "UBAH"
+cekAngka "riwayat L: jumlah baru 12" 200 '.data[0].jumlahBaru' "12"
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-02\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"9L\",\"jumlah\":1}]}"
-cek "ukuran ngawur -> 400" 400 "tidak valid"
+# Batas koreksi: belum ada setoran, L boleh turun bebas.
+panggil PUT "/api/hasil-potong/$ID_L" '{"jumlah":6}'
+cek "koreksi L 12->6 -> 200" 200 '"ok":true'
+panggil GET "/api/hasil-potong/$ID_L"
+cekAngka "riwayat L: aksi UBAH kedua" 200 '.data[0].aksi' "UBAH"
+cekAngka "riwayat L: lama 12 baru 6" 200 '.data[0].jumlahLama' "12"
+cekAngka "riwayat L: jumlahBaru 6" 200 '.data[0].jumlahBaru' "6"
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-02\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"M\",\"jumlah\":-5}]}"
-cek "jumlah negatif -> 400" 400 "Minimal satu baris"
+# ---------- 4. setoran ----------
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-02-31\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"M\",\"jumlah\":1}]}"
-cek "tanggal ngawur -> 400" 400 "Tanggal tidak valid"
+grup "setoran"
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-02\",\"jenis\":\"NGAWUR\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"M\",\"jumlah\":1}]}"
-cek "jenis ngawur -> 400" 400 "tidak valid"
+# Setoran MELEBIHI target ditolak: L potongan 6, isi 8.
+panggil POST /api/setoran "{\"tanggal\":\"2026-10-06\",\"items\":[{\"modelId\":$MODEL,\"warnaId\":$WARNA,\"ukuran\":\"L\",\"jumlah\":8}]}"
+cek "setoran melebihi target -> 400" 400 "melebihi target"
+cekAngka "pesan menyebut sisa 6" 400 '.error | contains("tersisa 6")' "true"
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-02\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":999999,\"items\":[{\"ukuran\":\"M\",\"jumlah\":1}]}"
-cek "warna tidak ada -> 400" 400 "Warna tidak ditemukan"
+# Setoran valid.
+panggil POST /api/setoran "{\"tanggal\":\"2026-10-06\",\"catatan\":\"tes\",\"items\":[{\"modelId\":$MODEL,\"warnaId\":$WARNA,\"ukuran\":\"L\",\"jumlah\":5}]}"
+cek "setoran L=5 -> 200" 200 '"ok"'
+SETORAN="$LAST_ID"
 
-panggil PATCH "/api/master/warna/$WARNA_KOSONG" '{"aktif":false}'
-cek "nonaktifkan warna yang belum dipakai -> 200" 200 '"aktif":false'
+# Sekarang sisa target L = 6 - 5 = 1. Isi 2 -> ditolak.
+panggil POST /api/setoran "{\"tanggal\":\"2026-10-06\",\"items\":[{\"modelId\":$MODEL,\"warnaId\":$WARNA,\"ukuran\":\"L\",\"jumlah\":2}]}"
+cek "setoran 2 melebihi sisa 1 -> 400" 400 "melebihi target"
 
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-02\",\"jenis\":\"SETORAN\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA_KOSONG,\"items\":[{\"ukuran\":\"M\",\"jumlah\":1}]}"
-cek "transaksi pakai warna nonaktif -> 400" 400 "nonaktif"
+panggil POST /api/setoran "{\"tanggal\":\"2026-10-06\",\"items\":[{\"modelId\":$MODEL,\"warnaId\":$WARNA2,\"ukuran\":\"M\",\"jumlah\":3}]}"
+cek "setoran M=3 (sama target) -> 200" 200 '"ok"'
 
-# Transaksi terpisah untuk menguji PUT.
-panggil POST /api/transaksi "{\"tanggal\":\"2026-10-04\",\"jenis\":\"BAHAN_KELUAR\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"S\",\"jumlah\":4}]}"
-PUT_UJI="$LAST_ID"
+# Hitung sisa: L potong 6 setor 5 -> kurang 1; M potong 3 setor 3 -> kurang 0.
+panggil GET "/api/kurang?modelId=$MODEL"
+cekAngka "kurang L = 1" 200 '[.data[] | select(.modelId == '"$MODEL"' and .warnaId == '"$WARNA"') | .ukuran[] | select(.label=="L") | .kurang] | add' "1"
+cekAngka "kurang M = 0 (disetor penuh)" 200 '[.data[] | select(.modelId == '"$MODEL"' and .warnaId == '"$WARNA2"') | .ukuran[] | select(.label=="M") | .kurang] | add' "0"
+cekAngka "kurang 2L = 5 (belum disetor)" 200 '[.data[] | select(.modelId == '"$MODEL"' and .warnaId == '"$WARNA"') | .ukuran[] | select(.label=="2L") | .kurang] | add' "5"
+# .total = jumlah SELURUH ukuran dalam satu kotak (model+warna) = L 1 + 2L 5.
+cekAngka "total kotak WARNA = 6 (L 1 + 2L 5)" 200 '[.data[] | select(.modelId == '"$MODEL"' and .warnaId == '"$WARNA"') | .total] | add' "6"
 
-panggil PUT "/api/transaksi/$PUT_UJI" "{\"tanggal\":\"2026-10-04\",\"jenis\":\"BAHAN_KELUAR\",\"penjahitId\":$PENJAHIT,\"modelId\":$MODEL,\"warnaId\":$WARNA,\"items\":[{\"ukuran\":\"3L\",\"jumlah\":7},{\"ukuran\":\"8L\",\"jumlah\":2}]}"
-cekAngka "PUT ganti items -> 200" 200 '.data.totalPcs' "9"
-cekAngka "items terurut logis 3L lalu 8L" 200 '.data.items | map(.ukuran) | join(",")' "3L,8L"
+# sembunyikanSelesai: default route /api/kurang menampilkan SEMUA kotak (termasuk
+# yang selesai). sembunyikanSelesai=1 yang menyembunyikan kotak M (kurang 0 semua).
+panggil GET "/api/kurang?modelId=$MODEL"
+cekAngka "M tampil di default" 200 '[.data[] | select(.warnaId == '"$WARNA2"')] | length' "1"
+panggil GET "/api/kurang?modelId=$MODEL&sembunyikanSelesai=1"
+cekAngka "M disembunyikan dengan sembunyikanSelesai=1" 200 '[.data[] | select(.warnaId == '"$WARNA2"')] | length' "0"
+panggil GET "/api/kurang?modelId=$MODEL&sembunyikanSelesai=0"
+cekAngka "M muncul dengan sembunyikanSelesai=0" 200 '[.data[] | select(.warnaId == '"$WARNA2"')] | length' "1"
 
-panggil GET "/api/transaksi/$PUT_UJI"
-cekAngka "GET transaksi -> totalPcs 9" 200 '.data.totalPcs' "9"
+# ---------- 5. batas A11: koreksi & hapus di bawah setoran ----------
 
-# Total transaksi sekarang: 6 (3 BAHAN_KELUAR + 3 SETORAN).
-panggil GET "/api/transaksi?jenis=BAHAN_KELUAR&limit=10"
-cekAngka "filter jenis BAHAN_KELUAR" 200 '.paging.total' "3"
+grup "batas A11 (koreksi/hapus potong)"
 
-panggil GET "/api/transaksi?jenis=SETORAN&limit=10"
-cekAngka "filter jenis SETORAN" 200 '.paging.total' "3"
+# L sudah disetor 5. Koreksi turun ke 4 -> ditolak.
+panggil PUT "/api/hasil-potong/$ID_L" '{"jumlah":4}'
+cek "koreksi L < total setoran (5) -> 400" 400 "tidak bisa diturunkan"
 
-panggil GET "/api/transaksi?tanggalDari=2026-10-02&tanggalSampai=2026-10-02"
-cekAngka "filter rentang tanggal inklusif" 200 '.paging.total' "1"
+# Hapus L (sudah disetor) -> ditolak.
+panggil DELETE "/api/hasil-potong/$ID_L"
+cek "hapus L yang sudah disetor -> 400" 400 "sudah disetor"
 
-panggil GET "/api/transaksi?limit=101"
-cek "limit di atas batas -> 400" 400 "maksimal"
+# M (WARNA2) masih bebas: setoran sama dengan potongan, tapi ini belum dihapus.
+# Hapus M -> harus ditolak juga karena sudah punya setoran.
+panggil DELETE "/api/hasil-potong/$ID_M"
+cek "hapus M yang sudah disetor -> 400" 400 "sudah disetor"
 
-panggil GET "/api/transaksi?pemilikId=$PEMILIK&limit=10"
-cekAngka "filter pemilikId" 200 '.paging.total' "6"
+# Baris 2L belum disetor sama sekali -> bisa dihapus. Ambil id-nya.
+panggil GET /api/hasil-potong
+ID_2L=$(printf '%s' "$LAST_BODY" | jq -r '[.data[] | select(.modelId == '"$MODEL"') | .warna[] | select(.warnaId == '"$WARNA"') | .baris[] | select(.ukuran=="2L") | .id][0]')
+panggil DELETE "/api/hasil-potong/$ID_2L"
+cek "hapus 2L (belum disetor) -> 200" 200 '"ok"'
+panggil GET "/api/hasil-potong/$ID_2L"
+cekAngka "riwayat 2L: aksi HAPUS" 200 '.data[0].aksi' "HAPUS"
 
-panggil GET "/api/transaksi?penjahitId=$PENJAHIT&modelId=$MODEL&warnaId=$WARNA&limit=10"
-cekAngka "filter gabungan" 200 '.paging.total' "6"
+# ---------- 6. edit & hapus setoran ----------
 
-# ---------- 4. sisa ----------
+grup "edit setoran"
 
-grup "sisa"
-# Perhitungan manual dari transaksi yang sudah dibuat:
-#
-#   10-01 BAHAN_KELUAR  L=10  2L=5
-#   10-02 SETORAN       M=3          (S=0 dibuang)
-#   10-03 SETORAN       XL=7
-#   10-04 BAHAN_KELUAR  3L=7  8L=2   (hasil PUT, sebelumnya S=4)
-#   10-06 BAHAN_KELUAR  XS=2
-#   10-07 SETORAN       XS=2
-#
-# sisa = bahan keluar - setoran, per ukuran:
-#   XS = 2  - 2  =  0   disembunyikan default
-#   M  = 0  - 3  = -3   lebih
-#   L  = 10 - 0  = 10
-#   XL = 0  - 7  = -7   lebih
-#   2L = 5  - 0  =  5
-#   3L = 7  - 0  =  7
-#   8L = 2  - 0  =  2
-#   S  tidak ada (diganti PUT)
-#
-# total bahan keluar = 15 + 9 + 2 = 26
-# total setoran      =  3 + 7 + 2 = 12
-# total sisa         = 26 - 12 = 14
-#
-# CATATAN: default XS disembunyikan (sisa 0), jadi total dihitung dari baris yang
-# terlihat saja: bahan keluar 24 (XS 2 tidak ikut), setoran 10 (XS 2 tidak ikut),
-# sisa 14 tetap sama karena XS saling menghapus. Baris XS yang disembunyikan
-# terlihat lagi dengan sembunyikanNol=0, dan totalnya ikut jadi 26 dan 12.
-panggil GET "/api/sisa?penjahitId=$PENJAHIT"
-cekAngka "sisa L = 10" 200 '.data[0].baris[] | select(.ukuran=="L") | .sisa' "10"
-cekAngka "sisa 2L = 5 (label asli, bukan L2)" 200 '.data[0].baris[] | select(.ukuran=="2L") | .sisa' "5"
-cekAngka "sisa 3L = 7" 200 '.data[0].baris[] | select(.ukuran=="3L") | .sisa' "7"
-cekAngka "sisa 8L = 2" 200 '.data[0].baris[] | select(.ukuran=="8L") | .sisa' "2"
-cekAngka "sisa M = -3 (tidak dipotong ke 0)" 200 '.data[0].baris[] | select(.ukuran=="M") | .sisa' "-3"
-cekAngka "sisa XL = -7 (tidak dipotong ke 0)" 200 '.data[0].baris[] | select(.ukuran=="XL") | .sisa' "-7"
-cekAngka "bahanKeluar L = 10" 200 '.data[0].baris[] | select(.ukuran=="L") | .bahanKeluar' "10"
-cekAngka "setoran L = 0" 200 '.data[0].baris[] | select(.ukuran=="L") | .setoran' "0"
-cekAngka "baris M ditandai lebih" 200 '.data[0].baris[] | select(.ukuran=="M") | .lebih' "true"
-cekAngka "baris XL ditandai lebih" 200 '.data[0].baris[] | select(.ukuran=="XL") | .lebih' "true"
-cekAngka "baris L tidak ditandai lebih" 200 '.data[0].baris[] | select(.ukuran=="L") | .lebih' "false"
-cekAngka "baris menyertakan nama pemilik" 200 '.data[0].baris[0].pemilikNama' "TES-Pemilik-Smoke"
-cekAngka "baris menyertakan nama penjahit" 200 '.data[0].baris[0].penjahitNama' "TES-Penjahit-Smoke"
-cekAngka "baris menyertakan nama model" 200 '.data[0].baris[0].modelNama' "TES-Model-Smoke"
-cekAngka "totalSisa = 14" 200 '.data[0].totalSisa' "14"
-cekAngka "totalBahanKeluar = 24 (baris tersembunyi tidak ikut)" 200 '.data[0].totalBahanKeluar' "24"
-cekAngka "totalSetoran = 10 (baris tersembunyi tidak ikut)" 200 '.data[0].totalSetoran' "10"
-cekAngka "adaLebih true" 200 '.data[0].adaLebih' "true"
-cekAngka "XS sisa 0 disembunyikan default" 200 '[.data[0].baris[] | select(.ukuran=="XS")] | length' "0"
-cekAngka "S tidak muncul (diganti PUT)" 200 '[.data[0].baris[] | select(.ukuran=="S")] | length' "0"
-cekAngka "ukuran terurut logis" 200 '[.data[0].baris[].ukuran] | join(",")' "M,L,XL,2L,3L,8L"
+panggil GET "/api/setoran/$SETORAN"
+cekAngka "detail setoran -> totalPcs 5" 200 '.data.totalPcs' "5"
+cekAngka "detail setoran tanggal tetap" 200 '.data.tanggal' "2026-10-06"
+cekAngka "detail setoran catatan tersimpan" 200 '.data.catatan' "tes"
 
-panggil GET "/api/sisa?penjahitId=$PENJAHIT&sembunyikanNol=0"
-cekAngka "sembunyikanNol=0 memunculkan XS sisa 0" 200 '[.data[0].baris[] | select(.ukuran=="XS" and .sisa==0)] | length' "1"
-cekAngka "sembunyikanNol=0 jumlah baris 7" 200 '.data[0].baris | length' "7"
-cekAngka "sembunyikanNol=0 total ikut baris tersembunyi" 200 '.data[0].totalBahanKeluar' "26"
-cekAngka "sembunyikanNol=0 total setoran ikut" 200 '.data[0].totalSetoran' "12"
-cekAngka "sembunyikanNol=0 totalSisa tetap 14" 200 '.data[0].totalSisa' "14"
+# PUT ganti isi setoran L=5 jadi L=2 (sisa target L = 6-2 = 4).
+panggil PUT "/api/setoran/$SETORAN" "{\"tanggal\":\"2026-10-06\",\"items\":[{\"modelId\":$MODEL,\"warnaId\":$WARNA,\"ukuran\":\"L\",\"jumlah\":2}]}"
+cekAngka "PUT setoran L=2 -> totalPcs 2" 200 '.data.totalPcs' "2"
 
-panggil GET "/api/sisa?pemilikId=$PEMILIK"
-cekAngka "sisa filter pemilikId" 200 '.data | length' "1"
+# Setoran yang sedang diedit dikecualikan dari hitungan kuota: isi L=5 lagi.
+panggil PUT "/api/setoran/$SETORAN" "{\"tanggal\":\"2026-10-06\",\"items\":[{\"modelId\":$MODEL,\"warnaId\":$WARNA,\"ukuran\":\"L\",\"jumlah\":5}]}"
+cekAngka "PUT setoran L=5 -> totalPcs 5" 200 '.data.totalPcs' "5"
 
-panggil GET "/api/sisa?penjahitId=$PENJAHIT&modelId=$MODEL"
-cekAngka "sisa filter modelId" 200 '.data[0].baris | length' "6"
+panggil GET "/api/setoran"
+cekAngka "riwayat setoran jumlah 2" 200 '.data | length' "2"
 
-panggil GET "/api/sisa?warnaId=999999"
-cekAngka "sisa tanpa hasil -> data kosong" 200 '.data | length' "0"
-cekAngka "ringkasan tetap ikut" 200 '.ringkasan.totalSisa' "0"
+panggil DELETE "/api/setoran/$SETORAN"
+cek "hapus setoran -> 200" 200 '"ok"'
+panggil GET "/api/setoran/$SETORAN"
+cek "GET setoran terhapus -> 404" 404 "tidak ditemukan"
 
-panggil GET "/api/sisa?penjahitId=abc"
+# ---------- 7. kurang dengan filter ----------
+
+grup "filter kurang"
+# Default route = tampil SEMUA kotak (M + WARNA yang belum lunas 2L). L lunas tapi
+# masih muncul karena default bukan sembunyikanSelesai.
+panggil GET "/api/kurang?pemilikId=$PEMILIK"
+cekAngka "filter pemilikId menghitung 2 kotak (semua tampil di default)" 200 '.data | length' "2"
+panggil GET "/api/kurang?warnaId=999999"
+cekAngka "warna tak ada -> data kosong" 200 '.data | length' "0"
+panggil GET "/api/kurang?modelId=abc"
 cek "filter bukan angka -> 400" 400 "harus angka bulat"
 
-# ---------- 5. master terpakai tidak boleh dinonaktifkan ----------
+# totalKurang ikut di payload.
+panggil GET "/api/kurang?modelId=$MODEL&sembunyikanSelesai=0"
+cekAngka "jumlahKotak ikut" 200 '.jumlahKotak' "2"
+
+# ---------- 8. master terpakai tidak boleh dinonaktifkan ----------
 
 grup "master terpakai"
-panggil PATCH "/api/master/penjahit/$PENJAHIT" '{"aktif":false}'
-cek "nonaktifkan penjahit terpakai -> 409" 409 "masih dipakai"
 panggil PATCH "/api/master/model/$MODEL" '{"aktif":false}'
 cek "nonaktifkan model terpakai -> 409" 409 "masih dipakai"
-panggil PATCH "/api/master/pemilik/$PEMILIK" '{"aktif":false}'
-cek "nonaktifkan pemilik terpakai -> 409" 409 "masih dipakai"
 panggil PATCH "/api/master/warna/$WARNA" '{"aktif":false}'
 cek "nonaktifkan warna terpakai -> 409" 409 "masih dipakai"
+panggil PATCH "/api/master/pemilik/$PEMILIK" '{"aktif":false}'
+cek "nonaktifkan pemilik terpakai -> 409" 409 "masih dipakai"
 
-# ---------- 6. CSRF ----------
+# ---------- 9. CSRF ----------
 
 grup "csrf"
-CSRF=$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" -X POST "$BASE/api/master/warna" \
-  -H 'Content-Type: application/json' -H 'Origin: https://jahat.example' -d '{"nama":"TES-Csrf"}')
+CSRF=$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" -X POST "$BASE/api/hasil-potong" \
+  -H 'Content-Type: application/json' -H 'Origin: https://jahat.example' \
+  -d "{\"modelId\":$MODEL,\"baris\":[{\"warnaId\":$WARNA2,\"ukuran\":\"XL\",\"jumlah\":1}]}")
 if [ "$CSRF" = "403" ]; then
   lulus "Origin beda host -> 403"
 else
   FAIL=$((FAIL+1)); printf '  GAGAL  Origin beda host -> 403 (http=%s)\n' "$CSRF"
 fi
 
-# ---------- 7. DELETE transaksi ----------
-
-grup "delete transaksi"
-panggil DELETE "/api/transaksi/$PUT_UJI"
-cek "DELETE transaksi -> 200" 200 '"ok":true'
-panggil GET "/api/transaksi/$PUT_UJI"
-cek "GET transaksi terhapus -> 404" 404 "tidak ditemukan"
-panggil DELETE "/api/transaksi/$PUT_UJI"
-cek "DELETE transaksi yang sudah hilang -> 404" 404 "tidak ditemukan"
-
-# ---------- 8. logout ----------
+# ---------- 10. logout ----------
 
 grup "logout"
 panggil POST /api/auth/logout

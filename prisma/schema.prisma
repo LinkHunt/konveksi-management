@@ -56,6 +56,9 @@ model ModelBaju {
   pemilik    Pemilik     @relation(fields: [pemilikId], references: [id])
   aktif      Boolean     @default(true)
   transaksi  Transaksi[]
+  hasilPotong HasilPotong[]
+  hasilRiwayat HasilPotongRiwayat[]
+  setoranItem SetoranItem[]
 
   @@unique([pemilikId, nama])
 }
@@ -67,6 +70,9 @@ model Warna {
   items     TransaksiItem[]
   // Relasi ke Transaksi.warnaId yang nullable, hanya dibaca kode lama.
   transaksi Transaksi[]
+  hasilPotong HasilPotong[]
+  hasilRiwayat HasilPotongRiwayat[]
+  setoranItem SetoranItem[]
 }
 
 model Penjahit {
@@ -125,3 +131,92 @@ model TransaksiItem {
 // Catatan: "sisa belum disetor" dihitung, bukan disimpan.
 // Per penjahit + model + warna + ukuran:
 //   sisa = SUM(jumlah WHERE jenis = BAHAN_KELUAR) - SUM(jumlah WHERE jenis = SETORAN)
+
+// ---------------------------------------------------------------------------
+// Revisi hasil potong (lihat docs/README-revisi-hasil-potong.md)
+// ---------------------------------------------------------------------------
+
+// Riwayat perubahan hasil potongan. Dibuat karena koreksi dan penghapusan
+// hasil potong diizinkan, tapi harus ada jejaknya (jawaban A3).
+enum AksiRiwayat {
+  BUAT
+  UBAH
+  HAPUS
+}
+
+// Hasil potongan = sumber data yang benar. Diisi manual mengikuti buku
+// hasil potongan milik bibi.
+//
+// Satu baris per kombinasi model + warna + ukuran. Potongan baru berarti
+// model baru, atau model sama dengan angka berbeda — di situ koreksi
+// menimpa baris lama, bukan menambah baris kedua.
+model HasilPotong {
+  id        Int      @id @default(autoincrement())
+  modelId   Int
+  warnaId   Int
+  ukuran    Ukuran
+  jumlah    Int // pcs, dicek >= 0 di server
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  model ModelBaju @relation(fields: [modelId], references: [id])
+  warna Warna     @relation(fields: [warnaId], references: [id])
+
+  @@unique([modelId, warnaId, ukuran])
+  @@index([warnaId])
+}
+
+// Jejak setiap pembuatan, koreksi, dan penghapusan baris hasil potongan.
+//
+// `hasilPotongId` sengaja TIDAK dijadikan foreign key dan TIDAK punya relasi
+// ke HasilPotong: setelah baris asal dihapus, riwayatnya harus tetap terbaca.
+// Kalau pakai FK, riwayat ikut hilang bersama barisnya — justru yang tidak
+// diinginkan. Angka id dipertahankan apa adanya supaya riwayat tetap bisa
+// dikelompokkan ke baris asalnya selama baris itu masih ada.
+model HasilPotongRiwayat {
+  id            Int         @id @default(autoincrement())
+  hasilPotongId Int
+  aksi          AksiRiwayat
+  modelId       Int
+  warnaId       Int
+  ukuran        Ukuran
+  jumlahLama    Int? // null saat aksi = BUAT
+  jumlahBaru    Int? // null saat aksi = HAPUS
+  createdAt     DateTime    @default(now())
+
+  model ModelBaju @relation(fields: [modelId], references: [id])
+  warna Warna     @relation(fields: [warnaId], references: [id])
+
+  @@index([hasilPotongId])
+  @@index([modelId, warnaId, ukuran])
+}
+
+// Setoran hasil jahit ke atasan/bos bibi. Disimpan sebagai riwayat: bisa
+// dibuka lagi dan ditambah sampai semua ukuran valid dan tidak ada yang kurang.
+model Setoran {
+  id        Int      @id @default(autoincrement())
+  tanggal   DateTime @db.Date
+  catatan   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items     SetoranItem[]
+
+  @@index([tanggal])
+}
+
+// Pemilik tidak disimpan di sini: cukup ikut dari ModelBaju.pemilikId.
+model SetoranItem {
+  id        Int     @id @default(autoincrement())
+  setoranId Int
+  modelId   Int
+  warnaId   Int
+  ukuran    Ukuran
+  jumlah    Int // pcs, dicek > 0 di server
+
+  setoran Setoran   @relation(fields: [setoranId], references: [id], onDelete: Cascade)
+  model   ModelBaju @relation(fields: [modelId], references: [id])
+  warna   Warna     @relation(fields: [warnaId], references: [id])
+
+  @@unique([setoranId, modelId, warnaId, ukuran])
+  @@index([modelId, warnaId, ukuran])
+}

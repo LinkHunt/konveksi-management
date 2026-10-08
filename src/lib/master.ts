@@ -1,15 +1,21 @@
 // Logika bersama untuk data master: whitelist entity, validasi, deteksi duplikat,
 // dan pengecekan master yang masih dipakai transaksi.
 //
-// Whitelist eksplisit dipakai, bukan nama entity dari URL langsung dipakai
-// sebagai nama model Prisma, supaya input tidak pernah jadi nama tabel.
+// Versi offline (sql.js): tidak ada Prisma. Entity master yang tersisa hanya
+// pemilik, model, dan warna — penjahit DIBUANG total, begitu juga catatan
+// transaksi (BAHAN_KELUAR). Master dipakai hasil potong + setoran saja.
+//
+// Field `aktif` disimpan sebagai INTEGER 0/1 di SQLite; tipe boolean dijaga
+// supaya UI tidak berubah.
 
-import type { PrismaClient } from "@prisma/client";
+import type { Database } from "sql.js";
+import { semua, satu, jalankan, simpanDb } from "./db";
+import { badRequest, notFound } from "./api";
 import {
   MASTER_ENTITIES,
-  masterPatchSchema,
-  masterSchema,
   isMasterEntity,
+  masterSchema,
+  masterPatchSchema,
   type MasterEntity,
 } from "./validators";
 
@@ -29,7 +35,6 @@ export const LABEL_ENTITY: Record<MasterEntity, string> = {
   pemilik: "Pemilik",
   model: "Model baju",
   warna: "Warna",
-  penjahit: "Penjahit",
 };
 
 export function parseMasterCreate(entity: MasterEntity, body: unknown): MasterCreateBody {
@@ -49,32 +54,34 @@ export function getNama(b: MasterCreateBody | MasterPatchBody): string | undefin
 }
 
 /**
- * Sudah ada master dengan nama sama? Huruf besar/kecil diabaikan tanpa mengubah
- * skema, lewat filter mode-insensitive PostgreSQL.
+ * Sudah ada master dengan nama sama? Huruf besar/kecil diabaikan lewat
+ * LOWER(), tanpa mengubah skema (Postgres dulu mode "insensitive").
  */
-export async function namaSudahDipakai(
-  db: PrismaClient,
+export function namaSudahDipakai(
+  db: Database,
   entity: MasterEntity,
   nama: string,
   opts: { pemilikId?: number; excludeId?: number } = {},
-): Promise<boolean> {
-  const namaEq = { equals: nama, mode: "insensitive" as const };
-  const bukanIni = opts.excludeId === undefined ? {} : { id: { not: opts.excludeId } };
+): boolean {
+  const bukanIni = opts.excludeId === undefined ? "" : "AND id != ?";
+  const params: unknown[] = [];
+  if (opts.excludeId !== undefined) params.push(opts.excludeId);
 
   if (entity === "model") {
-    const ada = await db.modelBaju.findFirst({
-      where: { nama: namaEq, pemilikId: opts.pemilikId, ...bukanIni },
-      select: { id: true },
-    });
+    const ada = satu<{ id: number }>(
+      `SELECT id FROM ModelBaju
+       WHERE LOWER(nama) = LOWER(?) AND pemilikId = ? ${bukanIni}`,
+      [nama, opts.pemilikId, ...params],
+    );
     return ada !== null;
   }
-  if (entity === "pemilik") {
-    return (await db.pemilik.findFirst({ where: { nama: namaEq, ...bukanIni } })) !== null;
-  }
-  if (entity === "warna") {
-    return (await db.warna.findFirst({ where: { nama: namaEq, ...bukanIni } })) !== null;
-  }
-  return (await db.penjahit.findFirst({ where: { nama: namaEq, ...bukanIni } })) !== null;
+  const tabel = entity === "pemilik" ? "Pemilik" : "Warna";
+  return (
+    satu<{ id: number }>(`SELECT id FROM ${tabel} WHERE LOWER(nama) = LOWER(?) ${bukanIni}`, [
+      nama,
+      ...params,
+    ]) !== null
+  );
 }
 
 export function pesanDuplikat(entity: MasterEntity, nama: string): string {
@@ -83,89 +90,179 @@ export function pesanDuplikat(entity: MasterEntity, nama: string): string {
     : `${LABEL_ENTITY[entity]} "${nama}" sudah ada.`;
 }
 
-/** Jumlah transaksi yang masih merujuk master ini. */
-export async function jumlahTransaksiMemakai(
-  db: PrismaClient,
-  entity: MasterEntity,
-  id: number,
-): Promise<number> {
+/**
+ * Jumlah catatan yang masih merujuk master ini — hasil potong maupun setoran.
+ * Menonaktifkan master yang masih dipakai akan mengubah laporan tanpa jejak,
+ * jadi ikut diblokir. (Catatan transaksi BAHAN_KELUAR sudah dibuang.)
+ */
+export function jumlahTransaksiMemakai(db: Database, entity: MasterEntity, id: number): number {
+  const hitung = (tabel: string, kolom: string): number => {
+    const r = satu<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM ${tabel} WHERE ${kolom} = ?`,
+      [id],
+    );
+    return r?.total ?? 0;
+  };
+
   if (entity === "pemilik") {
-    const models = await db.modelBaju.findMany({ where: { pemilikId: id }, select: { id: true } });
+    const models = semua<{ id: number }>(`SELECT id FROM ModelBaju WHERE pemilikId = ?`, [id]);
     if (models.length === 0) return 0;
-    return db.transaksi.count({ where: { modelId: { in: models.map((m) => m.id) } } });
+    const inSql = models.map(() => "?").join(",");
+    const ids = models.map((m) => m.id);
+    const potong = satu<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM HasilPotong WHERE modelId IN (${inSql})`,
+      ids,
+    )?.total ?? 0;
+    const setor = satu<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM SetoranItem WHERE modelId IN (${inSql})`,
+      ids,
+    )?.total ?? 0;
+    return potong + setor;
   }
-  if (entity === "model") return db.transaksi.count({ where: { modelId: id } });
-  // Warna tidak lagi ada di header transaksi, jadi dipakaiunya dicek lewat item.
-  if (entity === "warna") return db.transaksiItem.count({ where: { warnaId: id } });
-  return db.transaksi.count({ where: { penjahitId: id } });
+  if (entity === "model") {
+    return hitung("HasilPotong", "modelId") + hitung("SetoranItem", "modelId");
+  }
+  // warna
+  return hitung("HasilPotong", "warnaId") + hitung("SetoranItem", "warnaId");
 }
 
-/** Master yang dirujuk transaksi tidak boleh dinonaktifkan. */
+/** Master yang masih dipakai catatan (hasil potong / setoran) tidak boleh dinonaktifkan. */
 export function masterSedangDipakai(entity: MasterEntity): string {
   return entity === "pemilik"
-    ? "Pemilik masih dipakai model baju yang dipakai transaksi."
-    : `${LABEL_ENTITY[entity]} masih dipakai transaksi yang sudah tercatat.`;
+    ? "Pemilik masih dipakai model baju yang dipakai hasil potong atau setoran."
+    : `${LABEL_ENTITY[entity]} masih dipakai hasil potong atau setoran.`;
 }
 
 // ---- Akses data: satu fungsi per entity, tipe hasil pasti ----
-
-const SELECT_BASIC = { id: true, nama: true, aktif: true } as const;
-const SELECT_MODEL = {
-  id: true,
-  nama: true,
-  aktif: true,
-  pemilikId: true,
-  pemilik: { select: { id: true, nama: true } },
-} as const;
+// sql.js mengembalikan integer `aktif` (0/1); dikonversi ke boolean untuk UI.
 
 export type BarisBasic = { id: number; nama: string; aktif: boolean };
 export type BarisModel = BarisBasic & { pemilikId: number; pemilik: { id: number; nama: string } };
 
-export function ambil(db: PrismaClient, entity: MasterEntity, id: number): Promise<BarisBasic | BarisModel | null> {
-  if (entity === "model") return db.modelBaju.findUnique({ where: { id }, select: SELECT_MODEL });
-  if (entity === "pemilik") return db.pemilik.findUnique({ where: { id }, select: SELECT_BASIC });
-  if (entity === "warna") return db.warna.findUnique({ where: { id }, select: SELECT_BASIC });
-  return db.penjahit.findUnique({ where: { id }, select: SELECT_BASIC });
+function basicDari(r: { id: number; nama: string; aktif: number }): BarisBasic {
+  return { id: r.id, nama: r.nama, aktif: r.aktif === 1 };
+}
+
+export function ambil(db: Database, entity: MasterEntity, id: number): BarisBasic | BarisModel | null {
+  if (entity === "model") {
+    const r = satu<{ id: number; nama: string; aktif: number; pemilikId: number; pemilikNama: string }>(
+      `SELECT m.id, m.nama, m.aktif, m.pemilikId, p.nama AS pemilikNama
+       FROM ModelBaju m JOIN Pemilik p ON p.id = m.pemilikId
+       WHERE m.id = ?`,
+      [id],
+    );
+    if (!r) return null;
+    return {
+      id: r.id,
+      nama: r.nama,
+      aktif: r.aktif === 1,
+      pemilikId: r.pemilikId,
+      pemilik: { id: r.pemilikId, nama: r.pemilikNama },
+    };
+  }
+  const tabel = entity === "pemilik" ? "Pemilik" : "Warna";
+  const r = satu<{ id: number; nama: string; aktif: number }>(
+    `SELECT id, nama, aktif FROM ${tabel} WHERE id = ?`,
+    [id],
+  );
+  return r === null ? null : basicDari(r);
 }
 
 export function daftar(
-  db: PrismaClient,
+  db: Database,
   entity: MasterEntity,
   where: { aktif?: boolean },
-): Promise<BarisBasic[] | BarisModel[]> {
+): (BarisBasic | BarisModel)[] {
+  const aktifSql = where.aktif === undefined ? "" : "WHERE aktif = ?";
+  const aktifParams = where.aktif === undefined ? [] : [where.aktif ? 1 : 0];
+
   if (entity === "model") {
-    return db.modelBaju.findMany({ where, select: SELECT_MODEL, orderBy: { nama: "asc" } });
+    const rows = semua<{ id: number; nama: string; aktif: number; pemilikId: number; pemilikNama: string }>(
+      `SELECT m.id, m.nama, m.aktif, m.pemilikId, p.nama AS pemilikNama
+       FROM ModelBaju m JOIN Pemilik p ON p.id = m.pemilikId
+       ${aktifSql}
+       ORDER BY m.nama ASC`,
+      aktifParams,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      nama: r.nama,
+      aktif: r.aktif === 1,
+      pemilikId: r.pemilikId,
+      pemilik: { id: r.pemilikId, nama: r.pemilikNama },
+    }));
   }
-  if (entity === "pemilik") return db.pemilik.findMany({ where, select: SELECT_BASIC, orderBy: { nama: "asc" } });
-  if (entity === "warna") return db.warna.findMany({ where, select: SELECT_BASIC, orderBy: { nama: "asc" } });
-  return db.penjahit.findMany({ where, select: SELECT_BASIC, orderBy: { nama: "asc" } });
+  const tabel = entity === "pemilik" ? "Pemilik" : "Warna";
+  const rows = semua<{ id: number; nama: string; aktif: number }>(
+    `SELECT id, nama, aktif FROM ${tabel} ${aktifSql} ORDER BY nama ASC`,
+    aktifParams,
+  );
+  return rows.map(basicDari);
 }
 
-export function buat(
-  db: PrismaClient,
+export async function buat(
+  db: Database,
   entity: MasterEntity,
   body: MasterCreateBody,
 ): Promise<BarisBasic | BarisModel> {
-  const aktif = (body as { aktif?: boolean }).aktif;
-  const data = aktif === undefined ? {} : { aktif };
+  const aktif = ((body as { aktif?: boolean }).aktif === false ? 0 : 1) as 0 | 1;
+
   if (entity === "model") {
     const b = body as { nama: string; pemilikId: number };
-    return db.modelBaju.create({ data: { nama: b.nama, pemilikId: b.pemilikId, ...data }, select: SELECT_MODEL });
+    if (!satu(`SELECT id FROM Pemilik WHERE id = ?`, [b.pemilikId])) {
+      throw badRequest("Pemilik tidak ditemukan.");
+    }
+    jalankan(`INSERT INTO ModelBaju (nama, pemilikId, aktif) VALUES (?, ?, ?)`, [
+      b.nama,
+      b.pemilikId,
+      aktif,
+    ]);
+    await simpanDb();
+    const id = lastId();
+    return ambil(db, entity, id)!;
   }
+
   const n = (body as { nama: string }).nama;
-  if (entity === "pemilik") return db.pemilik.create({ data: { nama: n, ...data }, select: SELECT_BASIC });
-  if (entity === "warna") return db.warna.create({ data: { nama: n, ...data }, select: SELECT_BASIC });
-  return db.penjahit.create({ data: { nama: n, ...data }, select: SELECT_BASIC });
+  const tabel = entity === "pemilik" ? "Pemilik" : "Warna";
+  jalankan(`INSERT INTO ${tabel} (nama, aktif) VALUES (?, ?)`, [n, aktif]);
+  await simpanDb();
+  return ambil(db, entity, lastId())!;
 }
 
-export function ubah(
-  db: PrismaClient,
+/** ID baris terakhir yang di-INSERT pada koneksi aktif (sql.js). */
+function lastId(): number {
+  return satu<{ id: number }>(`SELECT last_insert_rowid() AS id`)!.id;
+}
+
+export async function ubah(
+  db: Database,
   entity: MasterEntity,
   id: number,
   data: { nama?: string; aktif?: boolean; pemilikId?: number },
 ): Promise<BarisBasic | BarisModel> {
-  if (entity === "model") return db.modelBaju.update({ where: { id }, data, select: SELECT_MODEL });
-  if (entity === "pemilik") return db.pemilik.update({ where: { id }, data, select: SELECT_BASIC });
-  if (entity === "warna") return db.warna.update({ where: { id }, data, select: SELECT_BASIC });
-  return db.penjahit.update({ where: { id }, data, select: SELECT_BASIC });
+  if (!ambil(db, entity, id)) throw notFound(`${LABEL_ENTITY[entity]} tidak ditemukan.`);
+
+  if (entity === "model") {
+    jalankan(
+      `UPDATE ModelBaju SET nama = COALESCE(?, nama), pemilikId = COALESCE(?, pemilikId),
+       aktif = CASE WHEN ? IS NULL THEN aktif ELSE ? END
+       WHERE id = ?`,
+      [data.nama ?? null, data.pemilikId ?? null,
+       data.aktif === undefined ? null : data.aktif ? 1 : 0,
+       data.aktif === undefined ? null : data.aktif ? 1 : 0,
+       id],
+    );
+  } else {
+    const tabel = entity === "pemilik" ? "Pemilik" : "Warna";
+    jalankan(
+      `UPDATE ${tabel} SET nama = COALESCE(?, nama),
+       aktif = CASE WHEN ? IS NULL THEN aktif ELSE ? END
+       WHERE id = ?`,
+      [data.nama ?? null, data.aktif === undefined ? null : data.aktif ? 1 : 0,
+       data.aktif === undefined ? null : data.aktif ? 1 : 0,
+       id],
+    );
+  }
+  await simpanDb();
+  return ambil(db, entity, id)!;
 }

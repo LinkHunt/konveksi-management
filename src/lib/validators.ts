@@ -1,5 +1,8 @@
 // Skema validasi request. Semua pesan dalam bahasa Indonesia supaya bisa
 // ditampilkan langsung di UI.
+//
+// Versi offline (sql.js): skema tetap dipakai untuk validasi input dari form
+// (zod). Entity penjahit & catatan transaksi (BAHAN_KELUAR) DIBUANG.
 
 import { z } from "zod";
 import { UKURAN_LIST, isUkuranLabel } from "./ukuran";
@@ -15,7 +18,6 @@ const namaWajib = z
 export const masterSchema = {
   pemilik: z.object({ nama: namaWajib, aktif: z.boolean().optional() }),
   warna: z.object({ nama: namaWajib, aktif: z.boolean().optional() }),
-  penjahit: z.object({ nama: namaWajib, aktif: z.boolean().optional() }),
   model: z.object({
     nama: namaWajib,
     pemilikId: z.number({ message: "Pemilik wajib dipilih." }).int().positive("Pemilik tidak valid."),
@@ -25,7 +27,7 @@ export const masterSchema = {
 
 export type MasterEntity = keyof typeof masterSchema;
 
-export const MASTER_ENTITIES: MasterEntity[] = ["pemilik", "model", "warna", "penjahit"];
+export const MASTER_ENTITIES: MasterEntity[] = ["pemilik", "model", "warna"];
 
 export function isMasterEntity(value: string): value is MasterEntity {
   return (MASTER_ENTITIES as string[]).includes(value);
@@ -35,7 +37,6 @@ export function isMasterEntity(value: string): value is MasterEntity {
 export const masterPatchSchema = {
   pemilik: z.object({ nama: namaWajib.optional(), aktif: z.boolean().optional() }),
   warna: z.object({ nama: namaWajib.optional(), aktif: z.boolean().optional() }),
-  penjahit: z.object({ nama: namaWajib.optional(), aktif: z.boolean().optional() }),
   model: z.object({
     nama: namaWajib.optional(),
     pemilikId: z.number().int().positive("Pemilik tidak valid.").optional(),
@@ -43,38 +44,64 @@ export const masterPatchSchema = {
   }),
 } as const;
 
-export const jenisTransaksiSchema = z.enum(["SETORAN", "BAHAN_KELUAR"]);
+// ---- Hasil potong & setoran ke atasan ----
 
-const itemSchema = z.object({
+export const ukuranZod = z.enum(UKURAN_LIST, {
+  message: `Ukuran harus salah satu dari: ${UKURAN_LIST.join(", ")}.`,
+});
+
+/** Satu baris potongan: warna + ukuran + jumlah. */
+export const hasilPotongBarisSchema = z.object({
   warnaId: z.number({ message: "Warna wajib dipilih." }).int().positive("Warna tidak valid."),
-  ukuran: z.enum(UKURAN_LIST, {
-    message: `Ukuran harus salah satu dari: ${UKURAN_LIST.join(", ")}.`,
-  }),
+  ukuran: ukuranZod,
   jumlah: z.number({ message: "Jumlah harus angka." }),
 });
 
-export const transaksiSchema = z.object({
+/** Simpan hasil potong untuk satu model: beberapa baris warna sekaligus. */
+export const hasilPotongSchema = z.object({
+  modelId: z
+    .number({ message: "Model wajib dipilih." })
+    .int()
+    .positive("Model tidak valid."),
+  baris: z
+    .array(hasilPotongBarisSchema, { message: "Baris warna wajib diisi." })
+    .min(1, "Minimal satu baris warna dan ukuran dengan jumlah lebih dari 0.")
+    .max(60, "Maksimal 60 baris warna dan ukuran."),
+});
+
+/** Koreksi satu baris hasil potong: cuma ganti jumlah. */
+export const koreksiHasilPotongSchema = z.object({
+  jumlah: z.number({ message: "Jumlah harus angka." }),
+});
+
+/** Satu baris setoran: model + warna + ukuran + jumlah. */
+export const setoranItemSchema = z.object({
+  modelId: z
+    .number({ message: "Model wajib dipilih." })
+    .int()
+    .positive("Model tidak valid."),
+  warnaId: z.number({ message: "Warna wajib dipilih." }).int().positive("Warna tidak valid."),
+  ukuran: ukuranZod,
+  jumlah: z.number({ message: "Jumlah harus angka." }),
+});
+
+/** Simpan setoran: tanggal + beberapa baris. */
+export const setoranSchema = z.object({
   tanggal: z
     .string({ message: "Tanggal wajib diisi." })
     .trim()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Tanggal harus format YYYY-MM-DD."),
-  jenis: jenisTransaksiSchema,
-  penjahitId: z.number({ message: "Penjahit wajib dipilih." }).int().positive("Penjahit tidak valid."),
-  modelId: z.number({ message: "Model wajib dipilih." }).int().positive("Model tidak valid."),
   catatan: z.string().trim().max(500, "Catatan maksimal 500 karakter.").nullish(),
   items: z
-    .array(itemSchema, { message: "Item wajib diisi." })
-    .min(1, "Minimal satu baris warna dan ukuran dengan jumlah lebih dari 0.")
-    .max(60, "Maksimal 60 baris warna dan ukuran per transaksi."),
+    .array(setoranItemSchema, { message: "Item wajib diisi." })
+    .min(1, "Minimal satu baris model, warna, dan ukuran dengan jumlah lebih dari 0.")
+    .max(120, "Maksimal 120 baris per setoran."),
 });
-
-export type TransaksiInput = z.infer<typeof transaksiSchema>;
 
 /**
  * Bersihkan item: buang jumlah 0 / kosong / negatif / bukan integer bulat.
  * Sisa minimal 1 baris, dan kombinasi warna + ukuran tidak boleh sama dua kali
- * dalam satu transaksi. Ukuran yang sama BOLEH muncul asal warnanya beda,
- * karena satu pengambilan bahan bisa punya beberapa warna.
+ * dalam satu transaksi. Ukuran yang sama BOLEH muncul asal warnanya beda.
  */
 export function normalisasiItems(
   items: { warnaId: number; ukuran: string; jumlah: unknown }[],
@@ -107,8 +134,7 @@ export function normalisasiItems(
 
 /**
  * Urutkan item menurut warna, lalu ukuran logis (XS..8L). Urutan warna dipakai
- * nama warna supaya item dengan warna sama selalu berdekatan, karena zod
- * mempertahankan urutan payload dan urutannya tidak dijamin.
+ * nama warna supaya item dengan warna sama selalu berdekatan.
  */
 export function urutItems<T extends { ukuran: string; warnaId: number }>(
   items: T[],

@@ -55,24 +55,42 @@ Hasil diskusi perencanaan:
 
 ## 3. Fitur
 
-### Fitur 1: Setoran
-Mencatat hasil jahitan yang disetor penjahit.
-Data: tanggal, penjahit, pemilik, model, warna, jumlah per ukuran.
+### Fitur 1: Hasil potong
+Mencatat hasil potongan bahan dari atasan/bos bibi, **per model + warna + ukuran**.
+Ini adalah **sumber data yang benar**: semua angka di bawah diturunkan dari buku
+hasil potongan milik bibi. Form menerima banyak warna sekaligus untuk satu model,
+dan kombinasi model + warna + ukuran yang sudah ada akan ditimpa (ada riwayat
+perubahan `BUAT`/`UBAH`/`HAPUS`).
 
-### Fitur 2: Bahan dibawa (bahan keluar)
-Mencatat bahan yang dibawa penjahit luar untuk dijahit di rumah.
-Data: tanggal, penjahit, pemilik, model, warna, jumlah per ukuran (contoh: XL 67 pcs).
+### Fitur 2: Setoran ke atasan
+Mencatat hasil jahitan yang disetorkan ke atasan. **Tidak boleh melebihi hasil
+potongan** — server menghitung sisa target per model + warna + ukuran dan menolak
+kalau setoran melewatinya. Setoran punya riwayat tabular (tanggal, catatan, total
+pcs) dan bisa diubah sampai nol tanpa batasan riwayat (mengganti seluruh isi
+setoran lama, `SetoranItem` diganti semua).
 
-### Fitur turunan: Sisa belum disetor
+### Fitur turunan: Kurang
 Dihitung otomatis, **tidak disimpan**:
 
 ```
-sisa = SUM(jumlah bahan keluar) - SUM(jumlah setoran)
-       dikelompokkan per penjahit + model + warna + ukuran
+kurang = SUM(jumlah hasil potong) - SUM(jumlah setoran)
+         dikelompokkan per model + warna + ukuran
 ```
 
+Halaman `/kurang` menampilkan kotak per model + warna (ringkasan per ukuran),
+bisa difilter pemilik/model/warna, dan kombinasi yang sudah lunas disembunyikan
+secara default.
+
+### Ekspor ke gambar
+Setiap tabel (master, hasil potong, kurang, setoran, dashboard) punya tombol
+**Ekspor gambar** yang mengunduh PNG tabel saat itu juga lewat renderer canvas
+murni (tanpa library html2canvas).
+
 ### Data master
-CRUD untuk pemilik, model baju, warna, dan penjahit. Data yang tidak dipakai lagi **dinonaktifkan, bukan dihapus**, supaya riwayat transaksi lama tetap utuh.
+CRUD untuk pemilik, model baju, warna, dan penjahit. Data yang tidak dipakai
+lagi **dinonaktifkan, bukan dihapus**, supaya riwayat lama tetap utuh. Penjahit
+masih tersimpan di database (dipakai tahap berikutnya), tapi tidak lagi tampil
+di daftar master.
 
 ## 4. Sistem yang digunakan
 
@@ -125,11 +143,18 @@ Ukuran dikunci di **enum** (tidak perlu tabel sendiri). Nama enum tidak boleh di
 | `Pemilik` | nama (unik), aktif |
 | `ModelBaju` | nama, pemilikId, aktif. Unik per kombinasi (pemilikId, nama) |
 | `Warna` | nama (unik), aktif |
-| `Penjahit` | nama (unik), aktif |
-| `Transaksi` | tanggal, jenis, penjahitId, modelId, warnaId, catatan |
-| `TransaksiItem` | transaksiId, ukuran, jumlah. Unik per (transaksiId, ukuran) |
+| `Penjahit` | nama (unik), aktif. Masih tersimpan (digunakan tahap berikutnya), tidak lagi dipakai fitur aktif |
+| `HasilPotong` | modelId, warnaId, ukuran, jumlah. Unik per (modelId, warnaId, ukuran). **Sumber data yang benar** |
+| `HasilPotongRiwayat` | hasilPotongId (tanpa FK, sengaja), aksi `BUAT/UBAH/HAPUS`, jumlahLama, jumlahBaru, waktu. Riwayat tetap ada setelah baris asal dihapus |
+| `Setoran` | tanggal, catatan, dibuat/diubah |
+| `SetoranItem` | setoranId (cascade), modelId, warnaId, ukuran, jumlah. Unik per (setoranId, modelId, warnaId, ukuran) |
 
-`Transaksi.jenis` bernilai `BAHAN_KELUAR` (fitur 2) atau `SETORAN` (fitur 1). Dua fitur memakai satu tabel dan satu komponen form karena strukturnya sama.
+`HasilPotong` memakai FK `RESTRICT` ke `ModelBaju`/`Warna` (hasil potong tidak
+boleh dari model/warna yang dihapus), sedangkan `SetoranItem` memakai `CASCADE`
+ke `Setoran` (item ikut terhapus saat setoran dihapus).
+
+Halaman turunan `kurang` dihitung on-the-fly lewat satu query SQL mentah
+(`COALESCE(SUM(...) FILTER(...))`), hasilnya tidak disimpan di tabel mana pun.
 
 File skema: `prisma/schema.prisma`. Blok datasource memakai dua URL:
 
@@ -156,30 +181,43 @@ src/
     (app)/
       layout.tsx              # pengecekan login dilakukan di sini
       LogoutButton.tsx
-      page.tsx                # dashboard
-      setoran/page.tsx        # form setoran
-      bahan-keluar/page.tsx    # form bahan keluar
-      sisa/page.tsx           # rekap sisa + filter
+      NavLinks.tsx            # menu drawer (Beranda, Hasil Potong, Setoran, Kurang + master)
+      page.tsx                # dashboard: kurang terbesar + setoran terbaru
+      hasil-potong/
+        page.tsx              # daftar hasil potong per model
+        HasilPotongPanel.tsx  # form entri + koreksi/hapus/riwayat + ekspor
+      setoran/
+        page.tsx              # riwayat setoran
+        SetoranPanel.tsx      # form isi setoran (dengan sisa target) + ekspor
+      kurang/
+        page.tsx              # rekap kurang + filter URL
+        KurangFilters.tsx     # filter pemilik/model/warna + sembunyikan selesai
+        KurangPanel.tsx       # kotak kurang per model + warna + ekspor
       master/
         pemilik/page.tsx      # master pemilik
         model/page.tsx        # master model
         warna/page.tsx        # master warna
-        penjahit/page.tsx     # master penjahit
+        penjahit/page.tsx     # master penjahit (masih ada, tidak tampil di nav)
     api/
       auth/login/route.ts
       auth/logout/route.ts
       master/[entity]/route.ts
       master/[entity]/[id]/route.ts
-      transaksi/route.ts
-      transaksi/[id]/route.ts
-      sisa/route.ts
+      hasil-potong/route.ts
+      hasil-potong/[id]/route.ts
+      setoran/route.ts
+      setoran/[id]/route.ts
+      kurang/route.ts
       health/route.ts         # cek koneksi database, publik
   components/
-    forms/TransaksiForm.tsx   # dipakai ulang untuk setoran dan bahan keluar
-    forms/UkuranTable.tsx     # tabel input jumlah per ukuran
+    forms/MasterTable.tsx     # tabel master + tombol ekspor (dipakai 4 entity)
+    forms/WarnaBlock.tsx      # blok warna + grid 9 ukuran (dipakai ulang)
     ui/Button.tsx
     ui/Input.tsx
     ui/Table.tsx
+    ui/Alert.tsx
+    ui/ConfirmDialog.tsx
+    ui/TombolEkspor.tsx       # tombol unduh PNG tabel
   lib/
     db.ts                     # Prisma client + adapter Neon
     api.ts                    # format respons error, pemetaan error Prisma
@@ -190,15 +228,18 @@ src/
     ukuran.ts                 # daftar ukuran, pemetaan label ke enum
     validators.ts             # skema zod
     master.ts                 # logika data master
-    transaksi.ts              # logika transaksi
-    sisa.ts                   # query sisa lewat SQL mentah
+    hasil-potong.ts           # logika hasil potong + riwayat + batas A11
+    setoran.ts                # logika setoran + validasi tidak melebihi target
+    kurang.ts                 # query agregat kurang lewat SQL mentah
+    ekspor-tabel.ts           # renderer canvas murni untuk PNG
+    client-api.ts             # helper fetch + tipe data client
 prisma/
   schema.prisma
   seed.ts                     # membuat 2 akun awal
   ganti-password.ts           # ganti password lewat terminal
   migrations/                 # dibuat otomatis oleh prisma migrate
 scripts/
-  smoke-test.sh               # 91 pemeriksaan API lewat curl
+  smoke-test.sh               # smoke test API domain baru lewat curl
   smoke-cleanup.ts            # hapus data uji berawalan TES-
 docs/
   API.md                      # kontrak API untuk sesi frontend

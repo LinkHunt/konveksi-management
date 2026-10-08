@@ -4,7 +4,7 @@
 		"lib": ["dom", "dom.iterable", "esnext"],
 		"allowJs": true,
 		"allowImportingTsExtensions": true,
-	"skipLibCheck": true,
+		"skipLibCheck": true,
 		"strict": true,
 		"noEmit": true,
 		"esModuleInterop": true,
@@ -12,21 +12,15 @@
 		"moduleResolution": "bundler",
 		"resolveJsonModule": true,
 		"isolatedModules": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
 		"jsx": "react-jsx",
 		"incremental": true,
-		"plugins": [
-			{
-				"name": "next"
-			}
-		],
 		"paths": {
 			"@/*": ["./src/*"]
 		},
-		"types": [
-			"./cloudflare-env.d.ts",
-			"node"
-		]
+		"types": ["node"]
 	},
-	"include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
+	"include": ["src"],
 	"exclude": ["node_modules"]
 }

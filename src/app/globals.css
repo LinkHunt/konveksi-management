@@ -11,8 +11,8 @@
  * Aksen dipakai untuk aksi utama dan link saja, bukan dekorasi, supaya
  * halaman tetap tenang. Oranye (#ea580c) khusus untuk sisa negatif.
  *
- * Font memakai Geist (dari next/font) supaya tidak perlu request ke Google dan
- * tidak ada layout shift saat halaman dimuat.
+ * Font Geist di-load dari Google Fonts di index.html. Variabel `--font-geist-*`
+ * diatur di :root supaya bisa dipakai sebagai --font-sans/--font-mono.
  */
 
 :root {
@@ -37,6 +37,10 @@
 	--peringatan-lembut: #fff4ea;
 	--bahaya: #c0392b;
 	--bahaya-lembut: #fdf0ef;
+
+	/* Font Geist (index.html). Kalau gagal dimuat, di-fallback system-ui. */
+	--font-geist-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-geist-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @theme inline {
@@ -74,7 +78,7 @@ html {
 body {
 	background: var(--latar);
 	color: var(--teks);
-	font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+	font-family: var(--font-sans);
 	-webkit-font-smoothing: antialiased;
 }
 

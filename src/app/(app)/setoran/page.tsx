@@ -1,18 +1,38 @@
+"use client";
+
+import { useMemo } from "react";
+import { getDb } from "@/lib/db";
+import { daftarSetoran } from "@/lib/setoran";
+import { daftar } from "@/lib/master";
 import { PageHeader } from "@/components/ui/Alert";
-import TransaksiForm from "@/components/forms/TransaksiForm";
-import { hariIniWIB } from "@/lib/tanggal";
+import SetoranPanel from "./SetoranPanel";
 
-export const metadata = { title: "Setoran" };
-export const dynamic = "force-dynamic";
-
+/*
+ * Setoran ke atasan. Menampilkan riwayat setoran + form mencatat setoran baru,
+ * dengan sisa target per model + warna + ukuran yang berasal dari hasil potong
+ * (sumber data yang benar). Data dibaca langsung dari database lokal.
+ */
 export default function SetoranPage() {
+  const { model, warna, setoran } = useMemo(() => {
+    const db = getDb();
+    return {
+      model: daftar(db, "model", {}),
+      warna: daftar(db, "warna", {}),
+      setoran: daftarSetoran(db, { limit: 30 }),
+    };
+  }, []);
+
   return (
     <>
       <PageHeader
-        title="Catat Setoran"
-        description="Hasil jahitan yang disetor balik dari penjahit."
+        title="Setoran"
+        description="Setoran hasil jahitan ke atasan. Setoran tidak boleh melebihi hasil potongan."
       />
-      <TransaksiForm jenis="SETORAN" tanggalAwal={hariIniWIB()} />
+      <SetoranPanel
+        modelAwal={model as { id: number; nama: string; pemilikId: number; pemilik: { id: number; nama: string } }[]}
+        warnaAwal={warna as { id: number; nama: string; aktif: boolean }[]}
+        setoranAwal={setoran}
+      />
     </>
   );
 }

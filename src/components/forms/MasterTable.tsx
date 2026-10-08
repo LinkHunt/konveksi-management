@@ -1,39 +1,45 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Alert, Card } from "@/components/ui/Alert";
 import { Field, Input, Select } from "@/components/ui/Input";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Table, Td, Th, TableWrap, EmptyRow } from "@/components/ui/Table";
-import { ambilMaster, buat, ubah, type BarisBasic } from "@/lib/client-api";
+import TombolEkspor from "@/components/ui/TombolEkspor";
+import {
+  daftar,
+  buat,
+  ubah,
+  namaSudahDipakai,
+  jumlahTransaksiMemakai,
+  masterSedangDipakai,
+  pesanDuplikat,
+  type BarisBasic,
+  type BarisModel,
+} from "@/lib/master";
+import { pesanError } from "@/lib/api";
+import { getDb } from "@/lib/db";
 
 /*
- * Satu komponen untuk keempat halaman master (pemilik, model, warna, penjahit).
- * Bedanya cuma: model butuh dropdown pemilik, dan labelnya beda.
+ * Satu komponen untuk halaman master (pemilik, model, warna). Bedanya cuma:
+ * model butuh dropdown pemilik, dan labelnya beda.
  *
- * Master TIDAK punya endpoint DELETE. Menghapus master dilakukan dengan
- * `aktif: false` supaya riwayat transaksi lama tetap utuh. Backend menolak
- * menonaktifkan master yang masih dipakai transaksi (409), dan pesan errornya
- * ditampilkan user apa adanya.
+ * Master TIDAK punya DELETE. Menonaktifkan dilakukan dengan `aktif: false`
+ * supaya data lama tetap utuh. Backend (lib) menolak menonaktifkan master yang
+ * masih dipakai hasil potong/setoran, dan pesannya ditampilkan apa adanya.
  *
- * Daftar awal dikirim dari server component, bukan di-fetch di sini. Ini
- * menghindari render pertama yang kosong lalu meloncat, dan juga menghindari
- * pola setState-di-effect yang bikin render berantai. Client cuma fetch ulang
- * setelah ada mutasi.
+ * Data dibaca langsung dari database lokal saat render (paginator awal),
+ * lalu di-refresh manual dari lib setelah mutasi — bukan fetch HTTP.
  */
 
-type Entitas = "pemilik" | "model" | "warna" | "penjahit";
+type Entitas = "pemilik" | "model" | "warna";
 
 const LABEL: Record<Entitas, string> = {
   pemilik: "Pemilik",
   model: "Model Baju",
   warna: "Warna",
-  penjahit: "Penjahit",
 };
-
-type BarisModel = BarisBasic & { pemilikId: number; pemilik: { id: number; nama: string } };
 
 export default function MasterTable({
   entity,
@@ -45,10 +51,9 @@ export default function MasterTable({
   /** Model wajib punya pemilik. */
   butuhPemilik: boolean;
   withPemilik?: { id: number; nama: string }[];
-  /** Data awal, sudah diambil server component. */
+  /** Data awal, sudah diambil dari lib saat render. */
   awal: (BarisBasic | BarisModel)[];
 }) {
-  const router = useRouter();
   const label = LABEL[entity];
 
   const [baris, setBaris] = useState<(BarisBasic | BarisModel)[]>(awal);
@@ -71,15 +76,14 @@ export default function MasterTable({
   // request-nya bisa terkirim berulang.
   const [nonaktifProses, setNonaktifProses] = useState(false);
 
-  /** Refresh daftar setelah mutasi. Server component yang kirim ulang juga. */
-  async function muat() {
-    const hasil = await ambilMaster<BarisBasic & Partial<BarisModel>>(entity, { semua: true });
-    if (!hasil.ok) {
-      setMuatGagal(hasil.error.message);
-      return;
+  /** Refresh daftar langsung dari database lokal. */
+  function muat() {
+    try {
+      setBaris(daftar(getDb(), entity, {}));
+      setMuatGagal(null);
+    } catch (e) {
+      setMuatGagal(pesanError(e));
     }
-    setMuatGagal(null);
-    setBaris(hasil.data);
   }
 
   async function tambah(e: React.FormEvent) {
@@ -87,47 +91,60 @@ export default function MasterTable({
     if (!nama.trim()) return;
     setSedangSimpan(true);
     setSimpanGagal(null);
-    const payload = butuhPemilik
-      ? { nama: nama.trim(), pemilikId: Number(pemilikId) }
-      : { nama: nama.trim() };
-    const hasil = await buat(`/api/master/${entity}`, payload);
-    setSedangSimpan(false);
-    if (!hasil.ok) {
-      setSimpanGagal(hasil.error.message);
-      return;
+    try {
+      const payload = butuhPemilik
+        ? { nama: nama.trim(), pemilikId: Number(pemilikId) }
+        : { nama: nama.trim() };
+      // Validasi duplikat manual dulu untuk pesan ramah.
+      const db = getDb();
+      if (db && namaSudahDipakai(db, entity, payload.nama, butuhPemilik ? { pemilikId: payload.pemilikId } : {})) {
+        setSimpanGagal(pesanDuplikat(entity, payload.nama));
+        setSedangSimpan(false);
+        return;
+      }
+      await buat(db, entity, payload);
+      setNama("");
+      setPemilikId("");
+      muat();
+    } catch (e) {
+      setSimpanGagal(pesanError(e));
     }
-    setNama("");
-    setPemilikId("");
-    await muat();
-    router.refresh();
+    setSedangSimpan(false);
   }
 
   async function simpanUbah(id: number) {
     setUbahGagal(null);
-    const hasil = await ubah(`/api/master/${entity}/${id}`, "PATCH", { nama: ubahNama.trim() });
-    if (!hasil.ok) {
-      setUbahGagal(hasil.error.message);
-      return;
+    try {
+      await ubah(getDb(), entity, id, { nama: ubahNama.trim() });
+      setUbahId(null);
+      muat();
+    } catch (e) {
+      setUbahGagal(pesanError(e));
     }
-    setUbahId(null);
-    await muat();
-    router.refresh();
   }
 
   async function ubahAktif(b: BarisBasic) {
     setNonaktifGagal(null);
     setNonaktifProses(true);
-    const hasil = await ubah(`/api/master/${entity}/${b.id}`, "PATCH", { aktif: !b.aktif });
-    setNonaktifProses(false);
-    if (!hasil.ok) {
-      // 409 = master masih dipakai transaksi, tidak bisa dinonaktifkan.
-      setNonaktifGagal(hasil.error.message);
+    try {
+      const db = getDb();
+      if (b.aktif) {
+        const n = jumlahTransaksiMemakai(db, entity, b.id);
+        if (n > 0) {
+          setNonaktifGagal(masterSedangDipakai(entity));
+          setNonaktifTarget(null);
+          setNonaktifProses(false);
+          return;
+        }
+      }
+      await ubah(db, entity, b.id, { aktif: !b.aktif });
       setNonaktifTarget(null);
-      return;
+      muat();
+    } catch (e) {
+      setNonaktifGagal(pesanError(e));
+      setNonaktifTarget(null);
     }
-    setNonaktifTarget(null);
-    await muat();
-    router.refresh();
+    setNonaktifProses(false);
   }
 
   const tampil = (baris ?? []).filter((b) => (sembunyiNonaktif ? b.aktif : true));
@@ -206,15 +223,37 @@ export default function MasterTable({
           <h2 className="text-sm font-semibold">
             Daftar {label} {baris ? `(${tampil.length})` : ""}
           </h2>
-          <label className="flex items-center gap-2 text-sm text-teks-lembut">
-            <input
-              type="checkbox"
-              checked={!sembunyiNonaktif}
-              onChange={(e) => setSembunyiNonaktif(!e.target.checked)}
-              className="h-4 w-4 rounded border-garis-kuat accent-aksen"
-            />
-            Tampilkan nonaktif
-          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-teks-lembut">
+              <input
+                type="checkbox"
+                checked={!sembunyiNonaktif}
+                onChange={(e) => setSembunyiNonaktif(!e.target.checked)}
+                className="h-4 w-4 rounded border-garis-kuat accent-aksen"
+              />
+              Tampilkan nonaktif
+            </label>
+            <TombolEkspor
+              namaFile={`daftar-${entity}.png`}
+              siapkan={() => ({
+                judul: `Daftar ${label}`,
+                subjudul: sembunyiNonaktif ? "Hanya data aktif" : "Semua data, termasuk nonaktif",
+                kolom: [
+                  { label: "Nama" },
+                  ...(butuhPemilik ? [{ label: "Pemilik" }] : []),
+                  { label: "Status", align: "center" as const },
+                ],
+                baris: tampil.map((b) => [
+                  b.nama,
+                  butuhPemilik && "pemilik" in b && b.pemilik ? b.pemilik.nama : null,
+                  b.aktif ? "Aktif" : "Nonaktif",
+                ]),
+                catatan: `Data master ${label.toLowerCase()}`,
+              })}
+            >
+              Ekspor gambar
+            </TombolEkspor>
+          </div>
         </div>
 
         <TableWrap>
@@ -307,7 +346,7 @@ export default function MasterTable({
         title={nonaktifTarget?.aktif ? `Nonaktifkan ${nonaktifTarget.nama}?` : `Aktifkan ${nonaktifTarget?.nama}?`}
         message={
           nonaktifTarget?.aktif
-            ? "Data ini tidak akan muncul lagi di pilihan form baru. Transaksi lama yang memakainya tetap tersimpan dan tidak berubah. Kalau data ini masih dipakai transaksi baru, server akan menolak."
+            ? "Data ini tidak akan muncul lagi di pilihan form baru. Kalau masih dipakai hasil potong atau setoran, penonaktifan ditolak."
             : "Data ini akan muncul lagi di pilihan form."
         }
         confirmLabel={nonaktifTarget?.aktif ? "Nonaktifkan" : "Aktifkan"}

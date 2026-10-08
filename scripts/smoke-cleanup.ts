@@ -1,15 +1,18 @@
 // Bersihkan data uji smoke test.
 //
-// Hanya menghapus data yang namanya berawalan "TES-". Data lain tidak pernah
-// disentuh. Dipakai oleh scripts/smoke-test.sh karena API master sengaja tidak
-// menyediakan DELETE (master dinonaktifkan, bukan dihapus, supaya riwayat
-// transaksi lama tetap utuh).
+// Hanya menghapus data yang model/pemilik/warnanya berawalan "TES-". Data lain
+// tidak pernah disentuh. Dipakai oleh scripts/smoke-test.sh karena API master
+// sengaja tidak menyediakan DELETE (master dinonaktifkan, bukan dihapus,
+// supaya riwayat lama tetap utuh).
 //
 //   node --env-file=.env scripts/smoke-cleanup.ts
 //
-// Urutan penghapusan penting: model dihapus sebelum pemilik, karena kolom
-// pemilikId punya foreign key dengan aturan RESTRICT. Kalau dihapus paralel,
-// pemilik bisa lebih dulu hilang dan database menolak.
+// Urutan penghapusan penting:
+//   1. HasilPotong & HasilPotongRiwayat dari model / warna TES-.
+//   2. Setoran & SetoranItem dari model / warna TES-.
+//   3. Model dihapus sebelum pemilik (FK pemilikId RESTRICT, dan hasil potong
+//      juga memakai modelId dengan FK RESTRICT).
+//   4. Warna, penjahit, pemilik terakhir.
 //
 // Tidak mencetak kredensial apa pun, hanya jumlah baris yang terpengaruh.
 
@@ -36,25 +39,59 @@ async function main(): Promise<void> {
       db.penjahit.findMany({ where: awal, select: { id: true } }),
     ]);
 
-    // Transaksi ikut terhapus kalau salah satu master yang dipakainya berawalan
-    // TES-. Item terhapus otomatis lewat ON DELETE CASCADE di skema.
-    // Warna tidak lagi ada di header transaksi, jadi dicari lewat item.
-    const or: Prisma.TransaksiWhereInput[] = [];
-    if (penjahit.length) or.push({ penjahitId: { in: ids(penjahit) } });
-    if (model.length) or.push({ modelId: { in: ids(model) } });
-    if (warna.length) or.push({ items: { some: { warnaId: { in: ids(warna) } } } });
-    if (pemilik.length) or.push({ model: { pemilikId: { in: ids(pemilik) } } });
-
-    let hapusTransaksi = 0;
-    if (or.length) {
-      const trans = await db.transaksi.findMany({ where: { OR: or }, select: { id: true } });
-      if (trans.length) {
-        hapusTransaksi = (await db.transaksi.deleteMany({ where: { id: { in: ids(trans) } } })).count;
+    // Hasil potong milik model / warna TES-. Riwayat dihapus manual karena
+    // tidak punya FK ke baris induk (sengaja, supaya riwayat tetap ada setelah
+    // baris dihapus) — jadi versi smoke harus ikut dihapus. Riwayat JUGA punya
+    // FK RESTRICT ke ModelBaju, jadi wajib dibersihkan sebelum model dihapus.
+    const hpWhere: Prisma.HasilPotongWhereInput[] = [];
+    if (model.length) hpWhere.push({ modelId: { in: ids(model) } });
+    if (warna.length) hpWhere.push({ warnaId: { in: ids(warna) } });
+    let hpHapus = 0;
+    let hpRiwayatHapus = 0;
+    if (hpWhere.length) {
+      const hp = await db.hasilPotong.findMany({
+        where: { OR: hpWhere },
+        select: { id: true },
+      });
+      if (hp.length) {
+        hpRiwayatHapus = (
+          await db.hasilPotongRiwayat.deleteMany({
+            where: { hasilPotongId: { in: ids(hp) } },
+          })
+        ).count;
+        hpHapus = (await db.hasilPotong.deleteMany({ where: { id: { in: ids(hp) } } })).count;
+      }
+      // Riwayat milik model TES- yang menunjuk baris hasil potong model lain
+      // (tidak ketangkap dari hp) tetap harus digugurkan sebelum hapus model.
+      if (model.length) {
+        hpRiwayatHapus += (
+          await db.hasilPotongRiwayat.deleteMany({ where: { modelId: { in: ids(model) } } })
+        ).count;
       }
     }
 
-    // Urutan WAJIB berurutan, bukan paralel: model memakai pemilik sebagai FK
-    // dengan ON DELETE RESTRICT.
+    // Setoran dari model / warna TES-. Item ikut terhapus ON DELETE CASCADE.
+    const setoranWhere: Prisma.SetoranWhereInput[] = [];
+    const setoranItemWhere = (m?: number[], w?: number[]): Prisma.SetoranWhereInput[] => {
+      const or: Prisma.SetoranWhereInput[] = [];
+      if (m?.length) or.push({ items: { some: { modelId: { in: m } } } });
+      if (w?.length) or.push({ items: { some: { warnaId: { in: w } } } });
+      return or;
+    };
+    const orS = setoranItemWhere(ids(model), ids(warna));
+    if (orS.length) setoranWhere.push(...orS);
+    let setoranHapus = 0;
+    if (setoranWhere.length) {
+      const s = await db.setoran.findMany({
+        where: { OR: setoranWhere },
+        select: { id: true },
+      });
+      if (s.length) {
+        setoranHapus = (await db.setoran.deleteMany({ where: { id: { in: ids(s) } } })).count;
+      }
+    }
+
+    // Urutan WAJIB berurutan: model memakai pemilik sebagai FK RESTRICT.
     const hModel = model.length
       ? (await db.modelBaju.deleteMany({ where: { id: { in: ids(model) } } })).count
       : 0;
@@ -69,8 +106,8 @@ async function main(): Promise<void> {
       : 0;
 
     console.log(
-      `  cleanup: transaksi=${hapusTransaksi} model=${hModel} ` +
-        `warna=${hWarna?.count ?? 0} penjahit=${hPenjahit?.count ?? 0} pemilik=${hPemilik}`,
+      `  cleanup: hasilPotong=${hpHapus} hasilPotongRiwayat=${hpRiwayatHapus} setoran=${setoranHapus} ` +
+        `model=${hModel} warna=${hWarna?.count ?? 0} penjahit=${hPenjahit?.count ?? 0} pemilik=${hPemilik}`,
     );
   } finally {
     await db.$disconnect();

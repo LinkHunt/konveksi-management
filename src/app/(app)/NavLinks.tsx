@@ -1,35 +1,33 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router-dom";
 
 /*
- * Isi drawer navigasi. Dipakai di dalam DrawerNav, bukan lagi di dua tempat:
- * sidebar fixed sudah dihapus, jadi tidak ada lagi varian "bottom".
+ * Isi drawer navigasi. Ikon pakai SVG inline, bukan karakter teks. Karakter
+ * seperti ⌂ dan ⚙ digambar berbeda tiap font, sehingga di HP bisa tampil
+ * kotak atau kosong. SVG selalu sama di mana saja.
  *
- * Ikon pakai SVG inline, bukan karakter teks. Karakter seperti ⌂ dan ⚙
- * digambar berbeda tiap font, sehingga di HP bisa tampil kotak atau kosong.
- * SVG selalu sama di mana saja.
+ * Tidak ada login/logout lagi — app offline, satu user (bibi).
  */
 
 type Item = { href: string; label: string; d: string };
 
 const UTAMA: Item[] = [
   { href: "/", label: "Beranda", d: "M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" },
-  { href: "/setoran", label: "Setoran", d: "M12 3v11m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" },
   {
-    href: "/bahan-keluar",
-    label: "Bahan Keluar",
+    href: "/hasil-potong",
+    label: "Hasil Potong",
     d: "M12 21V10m0 0 4 4m-4-4-4 4M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2",
   },
-  { href: "/sisa", label: "Sisa", d: "M4 6h16M4 12h16M4 18h10" },
+  { href: "/setoran", label: "Setoran", d: "M12 3v11m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" },
+  { href: "/kurang", label: "Belum di setorkan", d: "M4 6h16M4 12h16M4 18h10" },
 ];
 
 const MASTER: Item[] = [
   { href: "/master/pemilik", label: "Pemilik", d: "" },
   { href: "/master/model", label: "Model Baju", d: "" },
   { href: "/master/warna", label: "Warna", d: "" },
-  { href: "/master/penjahit", label: "Penjahit", d: "" },
+  { href: "/backup", label: "Cadangan & Pulihkan", d: "" },
 ];
 
 function aktif(pathname: string, href: string): boolean {
@@ -54,7 +52,7 @@ function Ikon({ d }: { d: string }) {
 }
 
 export default function NavLinks({ onPilih }: { onPilih: () => void }) {
-  const pathname = usePathname() ?? "";
+  const { pathname } = useLocation();
 
   return (
     <nav className="flex-1 overflow-y-auto px-3 pb-4">
@@ -64,7 +62,7 @@ export default function NavLinks({ onPilih }: { onPilih: () => void }) {
           return (
             <Link
               key={it.href}
-              href={it.href}
+              to={it.href}
               onClick={onPilih}
               aria-current={on ? "page" : undefined}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
@@ -89,7 +87,7 @@ export default function NavLinks({ onPilih }: { onPilih: () => void }) {
           return (
             <Link
               key={it.href}
-              href={it.href}
+              to={it.href}
               onClick={onPilih}
               aria-current={on ? "page" : undefined}
               className={`rounded-lg py-2.5 pl-12 pr-3 text-sm transition-colors ${

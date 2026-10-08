@@ -1,11 +1,8 @@
-// Satu-satunya tempat mapping antara label ukuran di API dan nama enum Prisma.
+// Definisi ukuran baju untuk aplikasi offline (sql.js).
 //
-// Nama enum Prisma tidak boleh diawali angka, jadi 2L/3L/5L/8L dipetakan lewat
-// @map menjadi L2/L3/L5/L8 di kode. Postgres sendiri tetap menyimpan label
-// asli ('2L'), sehingga query mentah bisa dibandingkan langsung ke label.
-//
-// API selalu memakai label asli (XS, S, M, L, XL, 2L, 3L, 5L, 8L). Nama enum
-// internal tidak boleh bocor ke klien.
+// Ukuran disimpan sebagai TEXT label asli ('XS'..'8L') di SQLite. Tidak ada
+// mapping ke enum Prisma lagi (tumpukan Postgres sudah ditinggalkan), jadi
+// cuma daftar label + cek keanggotaan + urut logis.
 
 export const UKURAN_LIST = [
   "XS",
@@ -21,38 +18,22 @@ export const UKURAN_LIST = [
 
 export type UkuranLabel = (typeof UKURAN_LIST)[number];
 
-const LABEL_TO_ENUM: Record<UkuranLabel, string> = {
-  XS: "XS",
-  S: "S",
-  M: "M",
-  L: "L",
-  XL: "XL",
-  "2L": "L2",
-  "3L": "L3",
-  "5L": "L5",
-  "8L": "L8",
-};
-
-const ENUM_TO_LABEL: Record<string, UkuranLabel> = Object.fromEntries(
-  Object.entries(LABEL_TO_ENUM).map(([label, enom]) => [enom, label as UkuranLabel]),
-);
-
 export function isUkuranLabel(value: unknown): value is UkuranLabel {
-  return typeof value === "string" && value in LABEL_TO_ENUM;
+  return typeof value === "string" && (UKURAN_LIST as readonly string[]).includes(value);
 }
 
-/** Label API ("2L") -> nama enum Prisma ("L2"). Input dinormalisasi lebih dulu. */
+/** Label API ("2L") -> label SQLite (sama, "2L"). Dijaga untuk kompatibilitas. */
 export function toEnumUkuran(label: string): string {
   const key = label.trim().toUpperCase();
   if (!isUkuranLabel(key)) {
     throw new UkuranTidakValidError(label);
   }
-  return LABEL_TO_ENUM[key];
+  return key;
 }
 
-/** Nama enum Prisma ("L2") -> label API ("2L"). Nilai tak dikenal dilewati. */
-export function toLabelUkuran(enumName: string): UkuranLabel | null {
-  return ENUM_TO_LABEL[enumName] ?? null;
+/** Nilai dari DB -> label API. Nilai tak dikenal dilewati (null). */
+export function toLabelUkuran(value: string): UkuranLabel | null {
+  return isUkuranLabel(value) ? value : null;
 }
 
 export class UkuranTidakValidError extends Error {

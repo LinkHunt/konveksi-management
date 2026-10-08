@@ -1,15 +1,17 @@
-// Flat config langsung. eslint-config-next v16 sudah mengekspor flat config,
-// jadi tidak perlu jembatan FlatCompat (yang justru membuat error circular).
-import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
-import nextTypescript from "eslint-config-next/typescript";
+// Flat config ESLint 9 untuk aplikasi Vite SPA offline.
+// eslint-config-next tidak dipakai lagi (Next.js sudah ditinggalkan).
+// Config dipertahankan supaya `npm run lint` tetap bisa jalan; aturan dibiarkan
+// minimal (belum di-seed rule lain), fokus utama adalah typecheck via tsc.
 
-const config = [
+export default [
   {
-    // File hasil generate (typegen Cloudflare), bukan kode yang ditulis tangan.
-    ignores: ["cloudflare-env.d.ts", ".next/**", ".open-next/**", ".wrangler/**", "node_modules/**"],
+    ignores: ["node_modules/**", "dist/**", "android/**", "*.tsbuildinfo"],
   },
-  ...nextCoreWebVitals,
-  ...nextTypescript,
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+    },
+  },
 ];
-
-export default config;

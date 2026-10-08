@@ -3,7 +3,7 @@
 import { NumberInput, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { UKURAN_LIST, type UkuranLabel } from "@/lib/ukuran";
-import type { BarisBasic } from "@/lib/client-api";
+import type { BarisBasic } from "@/lib/master";
 
 /*
  * Satu blok warna: dropdown warna + grid 9 ukuran.
@@ -131,7 +131,7 @@ export default function WarnaBlock({
             <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
               {b.baris.map((row) => (
                 <label key={row.ukuran} className="flex flex-col gap-1">
-                  <span className="text-center text-xs font-medium text-teks-lembet">
+                  <span className="text-center text-xs font-medium text-teks-lembut">
                     {row.ukuran}
                   </span>
                   <NumberInput
@@ -152,7 +152,7 @@ export default function WarnaBlock({
         <Button variant="secondary" size="sm" onClick={onTambah}>
           Tambah warna lain
         </Button>
-        <p className="text-xs text-teks-lembet">
+        <p className="text-xs text-teks-lembut">
           Biarkan kosong ukuran yang tidak dipakai. Server membuang jumlah 0.
         </p>
       </div>

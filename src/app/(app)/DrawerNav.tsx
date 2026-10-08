@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router-dom";
 import NavLinks from "./NavLinks";
-import LogoutButton from "./LogoutButton";
 
 /*
  * Navigasi utama, gaya aplikasi: app bar tetap di atas dengan tombol hamburger
@@ -33,7 +32,7 @@ const AMBANG_TUTUP = LEBAR * 0.4;
  */
 const AMBANG_GESER = 6;
 
-export default function DrawerNav({ username }: { username: string }) {
+export default function DrawerNav() {
   // `terbukaDi` = null kalau tertutup, isi dengan pathname saat drawer dibuka.
   // Menyimpan pathname (bukan cuma boolean) membuat drawer menutup dengan
   // sendirinya begitu halaman berganti, tanpa effect.
@@ -41,7 +40,7 @@ export default function DrawerNav({ username }: { username: string }) {
   const [tarik, setTarik] = useState(false);
   const [geserX, setGeserX] = useState(0);
 
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const geserRef = useRef<{ id: number; x0: number; x: number; ntaken: boolean } | null>(null);
 
   /*
@@ -159,7 +158,6 @@ export default function DrawerNav({ username }: { username: string }) {
           </button>
           <span className="truncate px-1 text-base font-semibold tracking-tight">Konveksi</span>
           <span className="flex-1" />
-          <span className="max-w-28 truncate pr-2 text-xs text-white/75">{username}</span>
         </div>
       </header>
 
@@ -210,12 +208,6 @@ export default function DrawerNav({ username }: { username: string }) {
         </div>
 
         <NavLinks onPilih={tutup} />
-
-        <div className="border-t border-garis px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <p className="truncate text-xs text-teks-lembut">Masuk sebagai</p>
-          <p className="mb-2 truncate text-sm font-medium">{username}</p>
-          <LogoutButton />
-        </div>
       </div>
     </>
   );

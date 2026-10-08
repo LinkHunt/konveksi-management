@@ -1,13 +1,16 @@
+"use client";
+
+import { useMemo } from "react";
 import { getDb } from "@/lib/db";
 import { daftar } from "@/lib/master";
 import { PageHeader } from "@/components/ui/Alert";
 import MasterTable from "@/components/forms/MasterTable";
 
-export const metadata = { title: "Warna" };
-export const dynamic = "force-dynamic";
-
-export default async function WarnaPage() {
-  const awal = await daftar(getDb(), "warna", {});
+/*
+ * Master warna. Data dibaca langsung dari database lokal saat render.
+ */
+export default function WarnaPage() {
+  const awal = useMemo(() => daftar(getDb(), "warna", {}), []);
   return (
     <>
       <PageHeader title="Warna" description="Pilihan warna kain." />

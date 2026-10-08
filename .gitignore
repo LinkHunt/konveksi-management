@@ -2,6 +2,9 @@ node_modules
 .next
 out
 dist
+android/build
+android/app/build
+android/local.properties
 .env
 .env.*
 !.env.example
@@ -11,3 +14,6 @@ dist
 *.tsbuildinfo
 package.patch*.py
 .open-next
+
+# Snapshot data usaha — tidak boleh ikut commit.
+backup-*.json

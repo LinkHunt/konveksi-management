@@ -1,7 +1,7 @@
 # Kontrak API Management Konveksi
 
 Dokumen ini ditulis dari kode yang benar-benar jalan dan diverifikasi lewat
-`scripts/smoke-test.sh` (91 pemeriksaan). Semua contoh respons di bawah adalah
+`scripts/smoke-test.sh` (69 pemeriksaan). Semua contoh respons di bawah adalah
 hasil panggilan sungguhan ke server dev, bukan karangan.
 
 Base URL pengembangan: `http://localhost:3000`
@@ -96,7 +96,8 @@ Empat jenis master, dipanggil lewat path yang sama:
 Path lain di segment itu membalas **404** `Jenis data tidak dikenal.`
 
 **Tidak ada** endpoint DELETE untuk master. Untuk "menghapus" master, ubah
-`aktif` jadi `false` lewat PATCH supaya riwayat transaksi lama tetap utuh.
+`aktif` jadi `false` lewat PATCH supaya catatan lama (hasil potong, setoran,
+transaksi) tetap utuh.
 
 ---
 
@@ -297,46 +298,43 @@ Sukses (200) memakai bentuk yang sama seperti POST.
 
 Dua perilaku yang perlu diketahui form:
 
-1. **Menonaktifkan master yang masih dipakai transaksi ditolak** dengan 409,
-   karena itu akan mengubah laporan sisa tanpa jejak:
+1. **Menonaktifkan master yang masih dipakai ditolak** dengan 409, karena itu
+   akan mengubah laporan tanpa jejak. "Dipakai" = hasil potong, setoran, atau
+   transaksi lama yang masih merujuk master itu:
 
    ```json
    {
-     "error": "Model baju masih dipakai transaksi yang sudah tercatat.",
+     "error": "Model baju masih dipakai hasil potong atau setoran.",
      "detail": { "jumlahTransaksi": 2 }
    }
    ```
 
-   Untuk `pemilik`, pesannya: `Pemilik masih dipakai model baju yang dipakai transaksi.`
+   `detail.jumlahTransaksi` adalah gabungan transaksi + hasil potong + item
+   setoran yang merujuk master itu. Untuk `pemilik`, pesannya: `Pemilik masih
+   dipakai model baju yang dipakai hasil potong atau setoran.`
+   Untuk `penjahit`, yang dicek hanya transaksi lama (domain baru tidak
+   mengikutkannya).
 
 2. **Mengganti `pemilikId` model** lewat PATCH harus menunjuk pemilik yang ada
    dan aktif, sama seperti saat membuat model.
 
 ---
+### `GET /api/hasil-potong`
 
-### `GET /api/transaksi`
-
-Daftar transaksi, terbaru lebih dulu: tanggal turun, lalu id turun. Butuh login.
+Daftar hasil potong, dikelompokkan per model lalu per warna. **Hasil potong
+adalah sumber data yang benar** — semua setoran dibatasi dari angka ini. Butuh
+login.
 
 Query:
 
 | Parameter | Tipe | Bawaan | Keterangan |
 |---|---|---|---|
-| `page` | integer min 1 | 1 | Nomor halaman |
-| `limit` | integer 1 sampai 100 | 20 | Jumlah baris per halaman, maksimal 100 |
-| `jenis` | `SETORAN` atau `BAHAN_KELUAR` | - | Filter jenis |
-| `penjahitId` | integer min 1 | - | Filter penjahit |
+| `pemilikId` | integer min 1 | - | Filter pemilik |
 | `modelId` | integer min 1 | - | Filter model |
-| `pemilikId` | integer min 1 | - | Filter pemilik, lewat model |
-| `tanggalDari` | `YYYY-MM-DD` | - | Batas bawah, inklusif |
-| `tanggalSampai` | `YYYY-MM-DD` | - | Batas atas, inklusif |
-
-Kedua batas tanggal inklusif: transaksi dengan tanggal sama dengan
-`tanggalDari` maupun `tanggalSampai` tetap ikut.
 
 ```bash
-curl -b cookies.txt "http://localhost:3000/api/transaksi?jenis=BAHAN_KELUAR&limit=10"
-curl -b cookies.txt "http://localhost:3000/api/transaksi?tanggalDari=2026-10-01&tanggalSampai=2026-10-31"
+curl -b cookies.txt "http://localhost:3000/api/hasil-potong"
+curl -b cookies.txt "http://localhost:3000/api/hasil-potong?modelId=9"
 ```
 
 Respons:
@@ -345,256 +343,364 @@ Respons:
 {
   "data": [
     {
-      "id": 27,
-      "tanggal": "2026-10-01",
-      "jenis": "BAHAN_KELUAR",
-      "catatan": "Contoh",
-      "penjahit": { "id": 9, "nama": "TES-Doc-Penjahit" },
-      "pemilik": { "id": 8, "nama": "TES-Doc-Pemilik" },
-      "model": { "id": 9, "nama": "TES-Doc-Model" },
-      "warna": { "id": 13, "nama": "TES-Doc-Warna" },
-      "items": [
-        { "ukuran": "L", "jumlah": 10 },
-        { "ukuran": "2L", "jumlah": 5 }
-      ],
-      "totalPcs": 15
+      "modelId": 9,
+      "modelNama": "TES-Doc-Model",
+      "pemilikId": 8,
+      "pemilikNama": "TES-Doc-Pemilik",
+      "total": 15,
+      "warna": [
+        {
+          "warnaId": 13,
+          "warnaNama": "TES-Doc-Warna",
+          "subtotal": 15,
+          "baris": [
+            { "id": 1, "warnaId": 13, "warnaNama": "TES-Doc-Warna", "ukuran": "L", "jumlah": 10 },
+            { "id": 2, "warnaId": 13, "warnaNama": "TES-Doc-Warna", "ukuran": "2L", "jumlah": 5 }
+          ]
+        }
+      ]
     }
-  ],
-  "paging": { "page": 1, "limit": 2, "total": 1, "totalHalaman": 1 }
-}
-```
-
-`totalPcs` adalah jumlah seluruh item, sudah dihitung server. Tidak perlu
-dihitung lagi di frontend.
-
-| Kondisi | Status | `error` |
-|---|---|---|
-| Belum login | 401 | `Belum login.` |
-| `limit` di atas 100 | 400 | `Parameter limit maksimal 100.` |
-| `limit` atau `page` bukan angka bulat | 400 | `Parameter limit harus angka bulat.` |
-| `jenis` tidak dikenal | 400 | `jenis harus SETORAN atau BAHAN_KELUAR.` |
-| Tanggal format salah | 400 | `tanggalDari tidak valid. Gunakan format YYYY-MM-DD.` |
-
----
-
-### `POST /api/transaksi`
-
-Buat transaksi beserta itemnya.
-
-```json
-{
-  "tanggal": "2026-10-01",
-  "jenis": "BAHAN_KELUAR",
-  "penjahitId": 9,
-  "modelId": 9,
-  "warnaId": 13,
-  "catatan": "Contoh",
-  "items": [
-    { "ukuran": "L", "jumlah": 10 },
-    { "ukuran": "2L", "jumlah": 5 }
   ]
 }
 ```
 
-`catatan` opsional, maksimal 500 karakter. Semua field lain wajib.
-
-Sukses (200), bentuknya sama seperti entri di `GET /api/transaksi`.
-
-Perilaku item yang perlu diketahui form:
-
-- Item dengan `jumlah: 0` atau negatif **dibuang diam-diam**, bukan error.
-  Kirim `{ "ukuran": "S", "jumlah": 0 }` bersama item lain, `S` tidak muncul
-  di respons.
-- Kalau **semua** item kena dibuang, barulah jadi error 400
-  `Minimal satu baris ukuran dengan jumlah lebih dari 0.`
-- Ukuran yang sama **tidak boleh muncul lebih dari sekali** dalam satu
-  transaksi. Gabungkan manual di frontend: dua baris `L` harus jadi satu baris
-  dengan jumlah dijumlahkan.
-- Maksimal 20 baris ukuran per transaksi.
-- `items` otomatis diurutkan dari ukuran terkecil ke terbesar, tidak mengikuti
-  urutan kirim.
+`total` = jumlah seluruh baris model itu, `subtotal` = jumlah seluruh baris
+satu warna. `id` di tiap baris dipakai sebagai target koreksi/hapus/riwayat.
 
 | Kondisi | Status | `error` |
 |---|---|---|
-| Semua item jumlah 0 | 400 | `Minimal satu baris ukuran dengan jumlah lebih dari 0.` |
-| Ukuran dobel | 400 | `Ukuran L muncul lebih dari sekali.` |
-| Ukuran tidak dikenal | 400 | `Ukuran tidak dikenal: 9L. Gunakan: XS, S, M, L, XL, 2L, 3L, 5L, 8L.` |
-| Tanggal tidak ada di kalender | 400 | `Tanggal tidak valid. Gunakan format YYYY-MM-DD.` |
-| Tanggal format salah | 400 | `Tanggal harus format YYYY-MM-DD.` |
-| `jenis` tidak dikenal | 400 | `Data yang dikirim tidak valid.` dengan `issues` `field: "jenis"` |
-| Master tidak ditemukan | 400 | `Penjahit tidak ditemukan.` / `Model baju tidak ditemukan.` / `Warna tidak ditemukan.` |
-| Master yang dipilih nonaktif | 400 | `Penjahit yang dipilih sudah nonaktif.` / `Model baju yang dipilih sudah nonaktif.` / `Warna yang dipilih sudah nonaktif.` |
-| Pemilik model nonaktif | 400 | `Pemilik dari model yang dipilih sudah nonaktif.` |
-| `catatan` lebih dari 500 karakter | 400 | `Catatan maksimal 500 karakter.` |
-| Lebih dari 20 item | 400 | `Maksimal 20 baris ukuran per transaksi.` |
-
-Header transaksi dan itemnya disimpan dalam satu operasi atomik, jadi tidak
-pernah ada transaksi tersimpan dengan item tidak lengkap.
+| Belum login | 401 | `Belum login.` |
+| `modelId` bukan angka bulat | 400 | `Parameter modelId harus angka bulat.` |
 
 ---
 
-### `GET /api/transaksi/{id}`
+### `POST /api/hasil-potong`
 
-Detail satu transaksi. Bentuknya sama seperti entri di list.
-
-Error: 401 `Belum login.`, 404 `Transaksi tidak ditemukan.`, 400
-`Id tidak valid.`
-
----
-
-### `PUT /api/transaksi/{id}`
-
-Ganti isi transaksi. Seluruh item lama **dihapus dan diganti** oleh item baru,
-bukan digabung. Body-nya identik dengan `POST /api/transaksi`.
-
-Perilaku penting untuk form koreksi:
-
-- Kalau PUT mengubah `penjahitId`, `modelId`, atau `warnaId`, master baru harus
-  aktif.
-- Kalau **tidak** mengubah master-nya, master nonaktif yang sudah dipakai
-  sebelumnya **tetap boleh** dipakai. Ini supaya transaksi lama bisa dikoreksi
-  walaupun master-nya sudah dinonaktifkan.
-
-Error sama seperti POST, ditambah 404 `Transaksi tidak ditemukan.` kalau id
-tidak ada.
-
----
-
-### `DELETE /api/transaksi/{id}`
-
-Hapus transaksi beserta itemnya. Pakai ini untuk koreksi salah input.
+Simpan hasil potong untuk satu model, bisa banyak warna sekaligus. Kombinasi
+model + warna + ukuran yang **sudah ada ditimpa angkanya** (tercatat di
+riwayat), bukan jadi baris dobel.
 
 ```json
-{ "ok": true, "id": 27 }
+{
+  "modelId": 9,
+  "baris": [
+    { "warnaId": 13, "ukuran": "L", "jumlah": 10 },
+    { "warnaId": 13, "ukuran": "2L", "jumlah": 5 }
+  ]
+}
 ```
 
-Item terhapus otomatis. Error: 401 `Belum login.`, 404
-`Transaksi tidak ditemukan.`
+Perilaku baris:
+
+- `jumlah` wajib angka; yang `<= 0`, bukan integer, atau `NaN` **dibuang
+  diam-diam** — tidak pernah tersimpan.
+- Kalau **semua** baris kena buang -> 400 `Minimal satu baris warna dan ukuran dengan jumlah lebih dari 0.`
+- Kombinasi warna + ukuran yang sama dalam satu request -> 400
+  `... muncul lebih dari sekali. Gabungkan jumlahnya jadi satu baris.`
+- Maksimal 60 baris; model wajib ada + aktif; setiap warna wajib ada + aktif.
+
+Sukses: `{ "ok": true }`. Semua baris disimpan + riwayat ditulis dalam **satu
+transaksi** — tidak ada potongan tercatat tanpa riwayat.
+
+| Kondisi | Status | `error` |
+|---|---|---|
+| Belum login | 401 | `Belum login.` |
+| Model tidak ada | 400 | `Model baju tidak ditemukan.` |
+| Model nonaktif | 400 | `Model baju yang dipilih sudah nonaktif.` |
+| Warna tidak ada | 400 | `Warna tidak ditemukan: #13.` |
+| Warna nonaktif | 400 | `Warna TES-Doc-Warna sudah nonaktif.` |
+| Ukuran bukan ukuran sah | 400 | `Ukuran harus salah satu dari: XS, S, M, ...` |
+| Duplikat kombinasi dalam request | 400 | `<nama warna> ukuran <ukuran> muncul lebih dari sekali. Gabungkan jumlahnya jadi satu baris.` |
+| `baris` kosong / semua jumlah 0 | 400 | `Minimal satu baris warna dan ukuran dengan jumlah lebih dari 0.` |
+
+Model + semua warna dicek di awal: kalau salah satu warna nonaktif, tidak ada
+satupun baris yang tersimpan.
 
 ---
 
-## `GET /api/sisa`
+### `GET /api/hasil-potong/{id}`
 
-Sisa bahan per ukuran: `sisa = bahan keluar - setoran`, dihitung langsung di
-database dan **tidak disimpan** di tabel mana pun.
-
-Dihitung dan dikelompokkan per penjahit, pemilik, model, warna, dan ukuran.
-
-Query:
-
-| Parameter | Tipe | Bawaan | Keterangan |
-|---|---|---|---|
-| `penjahitId` | integer min 1 | - | Filter penjahit |
-| `pemilikId` | integer min 1 | - | Filter pemilik |
-| `modelId` | integer min 1 | - | Filter model |
-| `warnaId` | integer min 1 | - | Filter warna |
-| `sembunyikanNol` | `0` untuk menampilkan | disembunyikan | Baris sisa tepat 0 disembunyikan secara bawaan |
-
-Contoh nyata untuk `penjahitId=9` dan `sembunyikanNol=0`:
+Riwayat perubahan satu baris hasil potong, terbaru dulu (id turun). Setiap aksi
+`BUAT`/`UBAH`/`HAPUS` tercatat dengan jumlah lama dan baru. **Riwayat tetap ada
+setelah baris asal dihapus** (tabel riwayat sengaja tanpa FK ke baris induk).
 
 ```json
 {
   "data": [
     {
-      "penjahit": { "id": 9, "nama": "TES-Doc-Penjahit" },
-      "baris": [
-        {
-          "penjahitId": 9,
-          "penjahitNama": "TES-Doc-Penjahit",
-          "pemilikId": 8,
-          "pemilikNama": "TES-Doc-Pemilik",
-          "modelId": 9,
-          "modelNama": "TES-Doc-Model",
-          "warnaId": 13,
-          "warnaNama": "TES-Doc-Warna",
-          "ukuran": "M",
-          "bahanKeluar": 0,
-          "setoran": 2,
-          "sisa": -2,
-          "lebih": true
-        },
-        {
-          "penjahitId": 9,
-          "penjahitNama": "TES-Doc-Penjahit",
-          "pemilikId": 8,
-          "pemilikNama": "TES-Doc-Pemilik",
-          "modelId": 9,
-          "modelNama": "TES-Doc-Model",
-          "warnaId": 13,
-          "warnaNama": "TES-Doc-Warna",
-          "ukuran": "L",
-          "bahanKeluar": 10,
-          "setoran": 4,
-          "sisa": 6,
-          "lebih": false
-        },
-        {
-          "penjahitId": 9,
-          "penjahitNama": "TES-Doc-Penjahit",
-          "pemilikId": 8,
-          "pemilikNama": "TES-Doc-Pemilik",
-          "modelId": 9,
-          "modelNama": "TES-Doc-Model",
-          "warnaId": 13,
-          "warnaNama": "TES-Doc-Warna",
-          "ukuran": "2L",
-          "bahanKeluar": 5,
-          "setoran": 0,
-          "sisa": 5,
-          "lebih": false
-        }
-      ],
-      "totalSisa": 9,
-      "totalBahanKeluar": 15,
-      "totalSetoran": 6,
-      "adaLebih": true
+      "id": 12,
+      "aksi": "UBAH",
+      "modelNama": "TES-Doc-Model",
+      "pemilikNama": "TES-Doc-Pemilik",
+      "warnaNama": "TES-Doc-Warna",
+      "ukuran": "L",
+      "jumlahLama": 10,
+      "jumlahBaru": 12,
+      "waktu": "2026-10-06T04:00:00.000Z"
     }
-  ],
-  "ringkasan": {
-    "jumlahPenjahit": 1,
-    "totalBahanKeluar": 15,
-    "totalSetoran": 6,
-    "totalSisa": 9,
-    "adaLebih": true
-  }
+  ]
 }
 ```
 
-### Aturan sisa yang perlu dijaga di frontend
+`jumlahLama` null saat `BUAT` (barunya dicatat di `jumlahBaru`), `jumlahBaru`
+null saat `HAPUS`. Endpoint **selalu** menjawab 200 dengan array `data` —
+mungkin kosong — meski baris asal sudah dihapus (riwayatnya dipecah per id,
+bukan per baris yang hidup). Hanya error 401 `Belum login.`
 
-1. **Sisa negatif tidak dipotong ke 0.** Nilai minus dikembalikan apa adanya,
-   dan barisnya dapat flag `lebih: true`. Baris dengan `lebih: true` berarti
-   ada lebih banyak setoran daripada bahan keluar, kemungkinan salah input.
-   `adaLebih` di level penjahit dan di `ringkasan` menandai hal yang sama.
+---
 
-2. **Baris sisa tepat 0 disembunyikan secara bawaan.** Kirim
-   `sembunyikanNol=0` untuk menampilkannya juga.
+### `PUT /api/hasil-potong/{id}`
 
-3. **Total mengikuti baris yang terlihat.** `totalSisa`, `totalBahanKeluar`, dan
-   `totalSetoran` dihitung **setelah** baris sisa 0 difilter, jadi angkanya
-   selalu cocok dengan yang terlihat di layar. Kalau user mengaktifkan
-   `sembunyikanNol=0`, angka total ikut naik mengikuti baris yang baru
-   dimunculkan. Ini disengaja supaya total dengan baris yang tampil selalu
-   konsisten.
+Koreksi jumlah satu baris hasil potong.
 
-4. **Baris hanya muncul kalau ada transaksi.** Ukuran yang tidak pernah ada di
-   transaksi mana pun tidak akan muncul di respons.
+```json
+{ "jumlah": 12 }
+```
 
-5. **Urutan baris**: nama penjahit, lalu pemilik, lalu model, lalu warna, lalu
-   ukuran dari kecil ke besar. Array `data` diurutkan per nama penjahit.
-
-6. Kalau filter tidak menghasilkan apa pun, `data` adalah array kosong dan
-   `ringkasan` tetap ada dengan semua total 0 dan `adaLebih: false`.
+**Batas A11**: jumlah baru tidak boleh turun di bawah total setoran yang sudah
+tercatat untuk kombinasi itu; kalau turun, ditolak. Setoran yang diizinkan
+minimal sama dengan angka setoran yang sudah ada, jadi data tidak pernah jadi
+"kurang lebih dari yang sudah diserahkan".
 
 | Kondisi | Status | `error` |
 |---|---|---|
 | Belum login | 401 | `Belum login.` |
-| Parameter filter bukan angka bulat | 400 | `Parameter penjahitId harus angka bulat.` |
-| Nilai filter 0 atau negatif | 400 | `Parameter penjahitId minimal 1.` |
+| Baris tidak ada | 404 | `Hasil potong tidak ditemukan.` |
+| Turun di bawah total setoran | 400 | `Jumlah tidak bisa diturunkan ke <x>. Kombinasi ini sudah disetor <y> pcs.` |
+| `jumlah` bukan angka bulat / negatif | 400 | `Jumlah harus angka bulat 0 atau lebih.` |
+
+Sukses: `{ "ok": true }`. Perubahan dicatat `UBAH` di riwayat dalam transaksi
+yang sama.
 
 ---
 
-## Menjalankan smoke test
+### `DELETE /api/hasil-potong/{id}`
+
+Hapus satu baris hasil potong. **Batas A11**: diblokir kalau kombinasi itu sudah
+punya setoran (`totalSetor > 0`), supaya riwayat setoran tetap konsisten dengan
+target yang pernah ada.
+
+```json
+{ "ok": true, "id": 12 }
+```
+
+| Kondisi | Status | `error` |
+|---|---|---|
+| Belum login | 401 | `Belum login.` |
+| Baris tidak ada | 404 | `Hasil potong tidak ditemukan.` |
+| Sudah disetor | 400 | `Hasil potong ini sudah disetor <y> pcs, tidak bisa dihapus.` |
+
+Riwayat baris yang dihapus tetap tersimpan; aksi `HAPUS` ditulis sebelum baris
+induk dihapus dalam satu transaksi.
+
+---
+
+### `GET /api/setoran`
+
+Daftar setoran ringkas, terbaru dulu (tanggal turun, lalu id turun). Butuh login.
+
+Query:
+
+| Parameter | Tipe | Bawaan | Keterangan |
+|---|---|---|---|
+| `tanggal` | `YYYY-MM-DD` | - | Batasi ke satu hari |
+| `limit` | integer 1..100 | `50` | Banyak baris |
+
+```bash
+curl -b cookies.txt "http://localhost:3000/api/setoran"
+curl -b cookies.txt "http://localhost:3000/api/setoran?tanggal=2026-10-06&limit=30"
+```
+
+Respons:
+
+```json
+{
+  "data": [
+    {
+      "id": 4,
+      "tanggal": "2026-10-06",
+      "catatan": "Setoran awal",
+      "totalPcs": 5,
+      "jumlahItem": 2
+    }
+  ]
+}
+```
+
+`totalPcs` dihitung server dari seluruh item, `jumlahItem` = baris item.
+`catatan` bisa `null`. `tanggal` yang bukan `YYYY-MM-DD` -> 400 `Tanggal harus format YYYY-MM-DD.`
+
+---
+
+### `POST /api/setoran`
+
+Buat setoran. **Setoran tidak boleh melebihi hasil potongan**: untuk tiap
+kombinasi model + warna + ukuran, server menghitung
+
+```
+diizinkan = jumlah hasil potong (nilai terbaru) - total setoran lain (kecuali setoran yang sedang diedit)
+```
+
+dan menolak kalau ada yang melewatinya.
+
+```json
+{
+  "tanggal": "2026-10-06",
+  "catatan": "Setoran awal",
+  "items": [
+    { "modelId": 9, "warnaId": 13, "ukuran": "L", "jumlah": 5 },
+    { "modelId": 9, "warnaId": 13, "ukuran": "2L", "jumlah": 2 }
+  ]
+}
+```
+
+Perilaku item: `jumlah <= 0` atau bukan integer dibuang diam-diam; semua kena
+buang -> 400 `Minimal satu baris model, warna, dan ukuran dengan jumlah lebih dari 0.`
+Kombinasi yang sama tidak boleh muncul dua kali dalam satu request. Maksimal
+120 baris. `catatan` opsional (trim; kosong -> `null`).
+
+Sukses: `{ "ok": true, "id": 4 }`. Header + item disimpan dalam satu transaksi
+atomik.
+
+| Kondisi | Status | `error` |
+|---|---|---|
+| Belum login | 401 | `Belum login.` |
+| Melebihi target | 400 | `Setoran melebihi target untuk <model> warna <warna> ukuran <ukuran>: tersisa <s> pcs dari potongan <p>, yang kamu isi <z>.` |
+| Tidak ada hasil potongan untuk kombinasi | 400 | `Tidak ada hasil potongan untuk <model> warna <warna> ukuran <ukuran>. Setoran tidak bisa melebihi potongan.` |
+| Tanggal tidak valid | 400 | `Tanggal harus format YYYY-MM-DD.` |
+| Duplikat kombinasi dalam request | 400 | `Baris <modelId> <warnaId> <ukuran> muncul lebih dari sekali. Gabungkan jumlahnya jadi satu baris.` |
+
+---
+
+### `GET /api/setoran/{id}`
+
+Detail satu setoran lengkap dengan item, dipakai form koreksi dan dialog detail.
+
+```json
+{
+  "data": {
+    "id": 4,
+    "tanggal": "2026-10-06",
+    "catatan": "Setoran awal",
+    "createdAt": "2026-10-06T04:00:00.000Z",
+    "updatedAt": "2026-10-06T04:00:00.000Z",
+    "totalPcs": 7,
+    "items": [
+      {
+        "modelId": 9,
+        "modelNama": "TES-Doc-Model",
+        "pemilikNama": "TES-Doc-Pemilik",
+        "warnaId": 13,
+        "warnaNama": "TES-Doc-Warna",
+        "ukuran": "L",
+        "jumlah": 5
+      }
+    ]
+  }
+}
+```
+
+`pemilikNama` ikut dari `ModelBaju`. Item diurutkan model lalu warna. Error:
+401 `Belum login.`, 404 `Setoran tidak ditemukan.`
+
+---
+
+### `PUT /api/setoran/{id}`
+
+Ganti seluruh isi setoran. Item lama **dihapus dan diganti** item baru, bukan
+digabung. Body identik dengan `POST /api/setoran`.
+
+Setoran yang sedang diedit **dikecualikan** dari hitungan kuota setoran lain,
+jadi kalau user menaikkan isi setoran yang sama, sisa target dihitung seolah
+item lamanya belum ada. Validasi melebihi-kurang tetap berlaku terhadap item
+baru. Sukses menjawab detail yang sudah diganti (bentuk sama dengan `GET
+/api/setoran/{id}`).
+
+Error sama seperti POST, ditambah 404 `Setoran tidak ditemukan.` kalau id tidak
+ada.
+
+---
+
+### `DELETE /api/setoran/{id}`
+
+Hapus setoran beserta itemnya (ON DELETE CASCADE). Kuota setoran untuk kombinasi
+yang disentuh langsung terbebas, jadi angka `kurang` naik kembali otomatis.
+
+```json
+{ "ok": true, "id": 4 }
+```
+
+Error: 401 `Belum login.`, 404 `Setoran tidak ditemukan.`
+
+---
+
+### `GET /api/kurang`
+
+Hasil potongan dikurangi setoran per model + warna + ukuran, dihitung langsung
+di database dalam satu query agregat dan **tidak disimpan**. Butuh login.
+
+```
+kurang = SUM(hasil potongan) - SUM(setoran)   per model + warna + ukuran
+```
+
+Query:
+
+| Parameter | Tipe | Bawaan | Keterangan |
+|---|---|---|---|
+| `pemilikId` | integer min 1 | - | Filter pemilik |
+| `modelId` | integer min 1 | - | Filter model |
+| `warnaId` | integer min 1 | - | Filter warna |
+| `sembunyikanSelesai` | `1` | tampil semua | `1` menyembunyikan kombinasi yang `kurang` 0 di semua ukuran |
+
+Tanpa `sembunyikanSelesai`, semua kombinasi ditampilkan (termasuk yang selesai).
+Dokumen halaman `/kurang` di UI memakai default yang sama dengan page-nya,
+bukan API ini — kalau ingin perilaku page, kirim `sembunyikanSelesai=1`.
+
+Respons:
+
+```json
+{
+  "data": [
+    {
+      "modelId": 9,
+      "modelNama": "TES-Doc-Model",
+      "pemilikId": 8,
+      "pemilikNama": "TES-Doc-Pemilik",
+      "warnaId": 13,
+      "warnaNama": "TES-Doc-Warna",
+      "ukuran": [
+        { "label": "L", "kurang": 5 },
+        { "label": "2L", "kurang": 0 }
+      ],
+      "total": 5,
+      "selesai": false
+    }
+  ],
+  "totalKurang": 5,
+  "jumlahKotak": 1
+}
+```
+
+Satu entri `data` = satu model + warna (kotak), dengan ringkasan per ukuran.
+`kurang` dipotong ke 0 minimum (setoran diblokir melebihi potongan, jadi nilai
+negatif hanya muncul kalau data tidak konsisten). `selesai` = `total == 0`.
+Kotak **tidak punya field `potong`/`setor`** — hanya `kurang` per ukuran +
+`total`. `totalKurang` dan `jumlahKotak` dihitung **setelah**
+`sembunyikanSelesai` diterapkan.
+
+Catatan implementasi: query mentah memakai `COALESCE(SUM(...))` dengan `LEFT
+JOIN` dari `HasilPotong` ke `SetoranItem`, sehingga kombinasi yang belum
+disetor tetap muncul dengan `setor 0`. Baris diurutkan nama pemilik -> model ->
+warna di database, lalu ukuran logis saat dikelompokkan jadi kotak.
+
+| Kondisi | Status | `error` |
+|---|---|---|
+| Belum login | 401 | `Belum login.` |
+| `modelId`/`pemilikId`/`warnaId` bukan angka bulat | 400 | `Parameter <nama> harus angka bulat.` |
+
+---
+
+## Menjalankan smoke test## Menjalankan smoke test
 
 Server dev harus sudah jalan, lalu:
 
@@ -602,5 +708,5 @@ Server dev harus sudah jalan, lalu:
 SMOKE_USER=<akun> SMOKE_PASS=<password> ./scripts/smoke-test.sh http://localhost:3000
 ```
 
-91 pemeriksaan, semuanya memakai data berawalan `TES-` yang dihapus lagi di
+69 pemeriksaan, semuanya memakai data berawalan `TES-` yang dihapus lagi di
 akhir. Kredensial hanya dibaca dari environment, tidak pernah ditulis di file.
