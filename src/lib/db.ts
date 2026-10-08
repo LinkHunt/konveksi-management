@@ -14,7 +14,7 @@
 // - Ukuran disimpan sebagai TEXT (label 'XS'..'8L'), bukan enum seperti dulu.
 //   Schema SQLite pakai TEXT karena tidak ada konsep enum di SQLite.
 
-import initSqlJs, { type Database } from "sql.js";
+import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 // Vite menjaga URL file wasm lewat `?url` (disalin ke dist/ dan diberi nama
 // hash). `locateFile` di bawah memakai ini supaya @capacitor/filesystem tidak
@@ -24,11 +24,11 @@ import sqlWasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 export const NAMA_FILE_DB = "konveksi.db";
 
 let db: Database | null = null;
-let SQL: ReturnType<typeof initSqlJs> | null = null;
-let sqlPromise: Promise<ReturnType<typeof initSqlJs>> | null = null;
+let SQL: SqlJsStatic | null = null;
+let sqlPromise: Promise<SqlJsStatic> | null = null;
 
 /** Inisialisasi sql.js, cache promise supaya sekali saja. */
-function initSql(): ReturnType<typeof initSqlJs> {
+function initSql(): Promise<SqlJsStatic> {
   if (!sqlPromise) {
     sqlPromise = initSqlJs({
       locateFile: () => sqlWasmUrl,
@@ -37,7 +37,7 @@ function initSql(): ReturnType<typeof initSqlJs> {
       return mod;
     });
   }
-  return sqlPromise!;
+  return sqlPromise;
 }
 
 /** Uint8Array -> base64 tanpa meledakkan stack (loop per 0x8000 byte). */
@@ -55,7 +55,7 @@ async function bacaDariDisk(): Promise<Uint8Array | null> {
   try {
     const res = await Filesystem.readFile({
       path: NAMA_FILE_DB,
-      directory: Directory.Application,
+      directory: Directory.Data,
     });
     // Capacitor mengembalikan base64 string (web) atau DataParts (Android/iOS).
     if (typeof res.data === "string") return decodeBase64(res.data);
@@ -82,13 +82,13 @@ export async function simpanDb(): Promise<void> {
   await Filesystem.writeFile({
     path: tmp,
     data: base64,
-    directory: Directory.Application,
+    directory: Directory.Data,
     recursive: true,
   });
-  await Filesystem.deleteFile({ path: NAMA_FILE_DB, directory: Directory.Application }).catch(
+  await Filesystem.deleteFile({ path: NAMA_FILE_DB, directory: Directory.Data }).catch(
     () => {},
   );
-  await Filesystem.rename({ from: tmp, to: NAMA_FILE_DB, directory: Directory.Application });
+  await Filesystem.rename({ from: tmp, to: NAMA_FILE_DB, directory: Directory.Data });
 }
 
 /** Ambil instance database aktif (harus sudah `initDb`). */
@@ -215,10 +215,10 @@ export function eksporBase64(): string {
  * Harus berjalan ASYNC dan sudah `initSql()` dijamin siap.
  */
 export async function gantiDb(dariBase64: string): Promise<void> {
-  const SQLmod = await initSql();
+  await initSql();
   const bin = decodeBase64(dariBase64);
   if (db) db.close();
-  db = new SQLmod.Database(bin);
+  db = new SQL!.Database(bin);
   initSchema(db);
 }
 

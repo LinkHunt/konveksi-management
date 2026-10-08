@@ -7,7 +7,6 @@
 // Seluruh query memakai helper di ./db (semua/satu/jalankan). ID integer.
 // Ukuran disimpan sebagai TEXT label ('XS'..'8L').
 
-import type { Database } from "sql.js";
 import { semua, satu, jalankan, getDb, simpanDb } from "./db";
 import { toLabelUkuran, isUkuranLabel, type UkuranLabel } from "./ukuran";
 import { badRequest, notFound } from "./api";
@@ -30,6 +29,7 @@ export type HasilPotongPerModel = {
 };
 
 type RowPotong = {
+  id: number;
   modelId: number;
   modelNama: string;
   pemilikId: number;
@@ -45,7 +45,6 @@ type RowPotong = {
  * Hanya model yang punya catatan yang muncul. Total dihitung saat tampil.
  */
 export function daftarHasilPotong(
-  db: Database,
   filter: { pemilikId?: number; modelId?: number } = {},
 ): HasilPotongPerModel[] {
   const where: string[] = [];
@@ -67,6 +66,7 @@ export function daftarHasilPotong(
       m.nama          AS modelNama,
       p.id            AS pemilikId,
       p.nama          AS pemilikNama,
+      hp.id           AS id,
       hp.warnaId      AS warnaId,
       w.nama          AS warnaNama,
       hp.ukuran       AS ukuran,
@@ -116,7 +116,7 @@ export function daftarHasilPotong(
 }
 
 /** Semua riwayat untuk satu hasil potong, terbaru dulu. */
-export function riwayatHasilPotong(db: Database, hasilPotongId: number): BarisRiwayat[] {
+export function riwayatHasilPotong(hasilPotongId: number): BarisRiwayat[] {
   const rows = semua<{
     id: number;
     aksi: string;
@@ -162,7 +162,7 @@ export function riwayatHasilPotong(db: Database, hasilPotongId: number): BarisRi
 }
 
 /** Total setoran per kombinasi model + warna + ukuran, dipakai validasi. */
-export function totalSetoranPerKombinasi(db: Database): Map<string, number> {
+export function totalSetoranPerKombinasi(): Map<string, number> {
   const rows = semua<{ modelId: number; warnaId: number; ukuran: string; total: number }>(
     `
     SELECT modelId, warnaId, ukuran, SUM(jumlah) AS total

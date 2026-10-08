@@ -20,7 +20,7 @@ import { Filesystem, Directory } from "@capacitor/filesystem";
  * dialog di sini.
  */
 
-function namaDefault(nama: string): string {
+function namaDefault(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   return `${NAMA_FILE_DB.replace(".db", "")}-backup-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.db`;
@@ -38,7 +38,7 @@ export default function BackupRestorePage() {
     setInfo(null);
     try {
       const base64 = eksporBase64();
-      const path = "Cadangan/" + namaDefault(NAMA_FILE_DB);
+      const path = "Cadangan/" + namaDefault();
       await Filesystem.writeFile({
         path,
         data: base64,

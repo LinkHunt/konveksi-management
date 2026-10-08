@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { getDb } from "@/lib/db";
 import { daftar } from "@/lib/master";
 import { PageHeader } from "@/components/ui/Alert";
 import MasterTable from "@/components/forms/MasterTable";
@@ -11,7 +10,7 @@ import MasterTable from "@/components/forms/MasterTable";
  * (aplikasi offline), lalu MasterTable menangani tambah/ubah/nonaktifkan.
  */
 export default function PemilikPage() {
-  const awal = useMemo(() => daftar(getDb(), "pemilik", {}), []);
+  const awal = useMemo(() => daftar("pemilik", {}), []);
   return (
     <>
       <PageHeader title="Pemilik" description="Pemilik baju. Model baju selalu punya satu pemilik." />

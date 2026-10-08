@@ -19,7 +19,6 @@ import {
   type BarisModel,
 } from "@/lib/master";
 import { pesanError } from "@/lib/api";
-import { getDb } from "@/lib/db";
 
 /*
  * Satu komponen untuk halaman master (pemilik, model, warna). Bedanya cuma:
@@ -79,7 +78,7 @@ export default function MasterTable({
   /** Refresh daftar langsung dari database lokal. */
   function muat() {
     try {
-      setBaris(daftar(getDb(), entity, {}));
+      setBaris(daftar(entity, {}));
       setMuatGagal(null);
     } catch (e) {
       setMuatGagal(pesanError(e));
@@ -96,13 +95,12 @@ export default function MasterTable({
         ? { nama: nama.trim(), pemilikId: Number(pemilikId) }
         : { nama: nama.trim() };
       // Validasi duplikat manual dulu untuk pesan ramah.
-      const db = getDb();
-      if (db && namaSudahDipakai(db, entity, payload.nama, butuhPemilik ? { pemilikId: payload.pemilikId } : {})) {
+      if (namaSudahDipakai(entity, payload.nama, butuhPemilik ? { pemilikId: payload.pemilikId } : {})) {
         setSimpanGagal(pesanDuplikat(entity, payload.nama));
         setSedangSimpan(false);
         return;
       }
-      await buat(db, entity, payload);
+      await buat(entity, payload);
       setNama("");
       setPemilikId("");
       muat();
@@ -115,7 +113,7 @@ export default function MasterTable({
   async function simpanUbah(id: number) {
     setUbahGagal(null);
     try {
-      await ubah(getDb(), entity, id, { nama: ubahNama.trim() });
+      await ubah(entity, id, { nama: ubahNama.trim() });
       setUbahId(null);
       muat();
     } catch (e) {
@@ -127,9 +125,8 @@ export default function MasterTable({
     setNonaktifGagal(null);
     setNonaktifProses(true);
     try {
-      const db = getDb();
       if (b.aktif) {
-        const n = jumlahTransaksiMemakai(db, entity, b.id);
+        const n = jumlahTransaksiMemakai(entity, b.id);
         if (n > 0) {
           setNonaktifGagal(masterSedangDipakai(entity));
           setNonaktifTarget(null);
@@ -137,7 +134,7 @@ export default function MasterTable({
           return;
         }
       }
-      await ubah(db, entity, b.id, { aktif: !b.aktif });
+      await ubah(entity, b.id, { aktif: !b.aktif });
       setNonaktifTarget(null);
       muat();
     } catch (e) {

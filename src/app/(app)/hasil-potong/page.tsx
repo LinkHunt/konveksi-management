@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { getDb } from "@/lib/db";
 import { daftarHasilPotong } from "@/lib/hasil-potong";
 import { daftar } from "@/lib/master";
 import { PageHeader } from "@/components/ui/Alert";
@@ -16,11 +15,10 @@ import HasilPotongPanel from "./HasilPotongPanel";
  */
 export default function HasilPotongPage() {
   const data = useMemo(() => {
-    const db = getDb();
     return {
-      model: daftar(db, "model", {}),
-      warna: daftar(db, "warna", {}),
-      hasil: daftarHasilPotong(db, {}),
+      model: daftar("model", {}),
+      warna: daftar("warna", {}),
+      hasil: daftarHasilPotong({}),
     };
   }, []);
 

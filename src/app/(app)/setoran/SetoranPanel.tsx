@@ -17,8 +17,8 @@ import {
   type DetailSetoran,
 } from "@/lib/setoran";
 import { hitungKurang, kotakKurang, type KotakKurang } from "@/lib/kurang";
+import { type UkuranLabel } from "@/lib/ukuran";
 import { pesanError } from "@/lib/api";
-import { getDb } from "@/lib/db";
 
 /*
  * Panel setoran ke atasan: form mencatat/ubah setoran + riwayat + ekspor.
@@ -95,7 +95,6 @@ export default function SetoranPanel({
     }
     try {
       const baris = hitungKurang(
-        getDb(),
         opts.setoranId !== undefined ? { modelId: Number(id), setoranId: opts.setoranId } : { modelId: Number(id) },
       );
       const cek = kotakKurang(baris).filter((k) => !k.selesai);
@@ -114,7 +113,7 @@ export default function SetoranPanel({
     setMuatTargetGagal(null);
     setDetailGagal(null);
     try {
-      const d = detailSetoran(getDb(), id);
+      const d = detailSetoran(id);
       if (!d) {
         setDetailGagal("Setoran tidak ditemukan.");
         return;
@@ -151,7 +150,7 @@ export default function SetoranPanel({
 
   function muatRiwayat() {
     try {
-      setRiwayat(daftarSetoran(getDb(), { limit: 30 }));
+      setRiwayat(daftarSetoran({ limit: 30 }));
       setMuatRiwayatGagal(null);
     } catch (e) {
       setMuatRiwayatGagal(pesanError(e));
@@ -163,7 +162,7 @@ export default function SetoranPanel({
     setDetail(null);
     setDetailGagal(null);
     try {
-      const d = detailSetoran(getDb(), id);
+      const d = detailSetoran(id);
       if (!d) {
         setDetailGagal("Setoran tidak ditemukan.");
         return;
@@ -180,7 +179,12 @@ export default function SetoranPanel({
       .filter(([, v]) => v !== "" && Number(v) > 0)
       .map(([kunci_, v]) => {
         const [warnaId, ukuran] = kunci_.split("|");
-        return { modelId: Number(modelId), warnaId: Number(warnaId), ukuran, jumlah: Number(v) || 0 };
+        return {
+          modelId: Number(modelId),
+          warnaId: Number(warnaId),
+          ukuran: ukuran as UkuranLabel,
+          jumlah: Number(v) || 0,
+        };
       });
     if (items.length === 0) {
       setSimpanGagal("Minimal satu baris warna dan ukuran dengan jumlah lebih dari 0.");

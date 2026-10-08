@@ -9,7 +9,6 @@
 // Versi offline (sql.js): tidak ada Prisma, query ditulis SQL tangan.
 // SQLite memakai COALESCE / SUM agak sama dengan Postgres di sini.
 
-import type { Database } from "sql.js";
 import { semua } from "./db";
 import { toLabelUkuran, UKURAN_LIST, type UkuranLabel } from "./ukuran";
 
@@ -64,7 +63,7 @@ export function urutanUkuran(u: string): number {
  * per model+warna+ukuran), supaya tidak ada penggandaan potongan saat satu
  * kombinasi disetor lebih dari sekali.
  */
-export function hitungKurang(db: Database, filter: FilterKurang = {}): BarisKurang[] {
+export function hitungKurang(filter: FilterKurang = {}): BarisKurang[] {
   // Filter untuk join potongan (alias hp / m / b / w) UNTUK hasil potong.
   const whereInduk: string[] = [];
   const paramsInduk: unknown[] = [];

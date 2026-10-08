@@ -94,9 +94,9 @@ function keRingkasan(db: Database, s: { id: number; tanggal: string; catatan: st
 
 /** Daftar setoran, terbaru dulu, dengan total pcs & jumlah item. */
 export function daftarSetoran(
-  db: Database,
   filter: { tanggal?: string; limit?: number } = {},
 ): RingkasanSetoran[] {
+  const db = getDb();
   const where: string[] = [];
   const params: unknown[] = [];
   if (filter.tanggal) {
@@ -113,7 +113,8 @@ export function daftarSetoran(
 }
 
 /** Satu setoran lengkap dengan item. */
-export function detailSetoran(db: Database, id: number): DetailSetoran | null {
+export function detailSetoran(id: number): DetailSetoran | null {
+  const db = getDb();
   const s = satu<{ id: number; tanggal: string; catatan: string | null; createdAt: string; updatedAt: string }>(
     `SELECT id, tanggal, catatan, createdAt, updatedAt FROM Setoran WHERE id = ?`,
     [id],

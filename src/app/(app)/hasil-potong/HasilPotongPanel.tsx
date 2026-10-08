@@ -26,7 +26,6 @@ import {
   type BarisRiwayat,
 } from "@/lib/hasil-potong";
 import { pesanError } from "@/lib/api";
-import { getDb } from "@/lib/db";
 
 /*
  * Panel hasil potong: daftar per model + form entri + aksi per baris
@@ -107,7 +106,7 @@ export default function HasilPotongPanel({
 
   function muat() {
     try {
-      setDaftarBaris(daftarHasilPotong(getDb(), {}));
+      setDaftarBaris(daftarHasilPotong({}));
       setMuatGagal(null);
     } catch (e) {
       setMuatGagal(pesanError(e));
@@ -165,7 +164,7 @@ export default function HasilPotongPanel({
 
   async function muatRiwayat(b: BarisHasilPotong) {
     try {
-      setRiwayat(riwayatHasilPotong(getDb(), b.id));
+      setRiwayat(riwayatHasilPotong(b.id));
     } catch (e) {
       setAksiGagal(pesanError(e));
     }

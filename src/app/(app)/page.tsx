@@ -15,15 +15,15 @@ import { useMemo } from "react";
  * menampilkan snapshot db saat render.
  */
 export default function DashboardPage() {
-  const { baris, setoran, totalKurangStr, terbesar, adaLebih } = useMemo(() => {
+  const { setoran, totalKurangStr, terbesar, adaLebih } = useMemo(() => {
     const db = getDb();
-    const baris = hitungKurang(db, {});
+    const baris = hitungKurang({});
     const setoran = daftarSetoran(db, { limit: 8 });
     const kotak = kotakKurang(baris).filter((k) => !k.selesai);
     const totalKurang = kotak.reduce((s, k) => s + k.total, 0);
     const terbesar = [...kotak].sort((a, b) => b.total - a.total).slice(0, 8);
     const adaLebih = baris.some((b) => b.lebih);
-    return { baris, setoran, totalKurangStr: String(totalKurang), terbesar, adaLebih };
+    return { setoran, totalKurangStr: String(totalKurang), terbesar, adaLebih };
   }, []);
 
   return (

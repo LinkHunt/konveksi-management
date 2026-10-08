@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getDb } from "@/lib/db";
 import { hitungKurang, kotakKurang } from "@/lib/kurang";
 import { daftar } from "@/lib/master";
 import { Card, PageHeader } from "@/components/ui/Alert";
@@ -34,13 +33,12 @@ export default function KurangPage() {
       warnaId: angka("warnaId"),
     };
 
-    const db = getDb();
-    const baris = hitungKurang(db, filter);
+    const baris = hitungKurang(filter);
     const idNama = (rows: unknown[]) =>
       (rows as { id: number; nama: string }[]).map((r) => ({ id: r.id, nama: r.nama }));
-    const pemilik = idNama(daftar(db, "pemilik", {}));
-    const model = idNama(daftar(db, "model", {}));
-    const warna = idNama(daftar(db, "warna", {}));
+    const pemilik = idNama(daftar("pemilik", {}));
+    const model = idNama(daftar("model", {}));
+    const warna = idNama(daftar("warna", {}));
 
     const kotak = kotakKurang(baris);
     const terlihat = sembunyiSelesai ? kotak.filter((k) => !k.selesai) : kotak;

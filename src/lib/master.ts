@@ -58,7 +58,6 @@ export function getNama(b: MasterCreateBody | MasterPatchBody): string | undefin
  * LOWER(), tanpa mengubah skema (Postgres dulu mode "insensitive").
  */
 export function namaSudahDipakai(
-  db: Database,
   entity: MasterEntity,
   nama: string,
   opts: { pemilikId?: number; excludeId?: number } = {},
@@ -95,7 +94,7 @@ export function pesanDuplikat(entity: MasterEntity, nama: string): string {
  * Menonaktifkan master yang masih dipakai akan mengubah laporan tanpa jejak,
  * jadi ikut diblokir. (Catatan transaksi BAHAN_KELUAR sudah dibuang.)
  */
-export function jumlahTransaksiMemakai(db: Database, entity: MasterEntity, id: number): number {
+export function jumlahTransaksiMemakai(entity: MasterEntity, id: number): number {
   const hitung = (tabel: string, kolom: string): number => {
     const r = satu<{ total: number }>(
       `SELECT COUNT(*) AS total FROM ${tabel} WHERE ${kolom} = ?`,
@@ -169,7 +168,6 @@ export function ambil(db: Database, entity: MasterEntity, id: number): BarisBasi
 }
 
 export function daftar(
-  db: Database,
   entity: MasterEntity,
   where: { aktif?: boolean },
 ): (BarisBasic | BarisModel)[] {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { getDb } from "@/lib/db";
 import { daftar } from "@/lib/master";
 import { PageHeader } from "@/components/ui/Alert";
 import MasterTable from "@/components/forms/MasterTable";
@@ -11,9 +10,8 @@ import MasterTable from "@/components/forms/MasterTable";
  */
 export default function ModelPage() {
   const { model, opsiPemilik } = useMemo(() => {
-    const db = getDb();
-    const model = daftar(db, "model", {});
-    const pemilik = daftar(db, "pemilik", {});
+    const model = daftar("model", {});
+    const pemilik = daftar("pemilik", {});
     return {
       model,
       opsiPemilik: pemilik.map((p) => ({ id: p.id, nama: p.nama })),
