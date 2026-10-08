@@ -7,6 +7,7 @@ import { Field, Select, Input, Textarea, NumberInput } from "@/components/ui/Inp
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Table, Td, Th, TableWrap } from "@/components/ui/Table";
 import TombolEkspor from "@/components/ui/TombolEkspor";
+import { namaFileTanggal } from "@/lib/ekspor-tabel";
 import { hariIniWIB } from "@/lib/tanggal";
 import {
   daftarSetoran,
@@ -410,7 +411,7 @@ export default function SetoranPanel({
           <h2 className="text-sm font-semibold">
             Riwayat setoran ({riwayat.length})
           </h2>
-          <TombolEkspor namaFile="riwayat-setoran.png" siapkan={siapkanEkspor}>
+          <TombolEkspor namaFile={() => namaFileTanggal("riwayat-setoran")} siapkan={siapkanEkspor}>
             Ekspor gambar
           </TombolEkspor>
         </div>

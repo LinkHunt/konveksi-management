@@ -328,7 +328,7 @@ export default function HasilPotongPanel({
           <h2 className="text-sm font-semibold">
             Daftar hasil potong {daftarBaris.length > 0 ? `(${daftarBaris.length} model)` : ""}
           </h2>
-          <TombolEkspor namaFile={namaFileTanggal("hasil-potong")} siapkan={siapkanEkspor}>
+          <TombolEkspor namaFile={() => namaFileTanggal("hasil-potong")} siapkan={siapkanEkspor}>
             Ekspor gambar
           </TombolEkspor>
         </div>
@@ -349,7 +349,7 @@ export default function HasilPotongPanel({
                       <span className="font-semibold text-teks">{m.total}</span> pcs
                     </p>
                     <div className="flex gap-1.5">
-                      <TombolEkspor siapkan={() => dataEksporModel(m)} namaFile={namaFileModel("hasil-potong", m.modelNama)}>
+                      <TombolEkspor siapkan={() => dataEksporModel(m)} namaFile={() => namaFileModel("hasil-potong", m.modelNama)}>
                         Foto model
                       </TombolEkspor>
                       <Button variant="danger" size="sm" onClick={() => bukaHapusModel(m)}>

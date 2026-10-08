@@ -7,6 +7,7 @@ import { Field, Input, Select } from "@/components/ui/Input";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Table, Td, Th, TableWrap, EmptyRow } from "@/components/ui/Table";
 import TombolEkspor from "@/components/ui/TombolEkspor";
+import { namaFileTanggal } from "@/lib/ekspor-tabel";
 import {
   daftar,
   buat,
@@ -231,7 +232,7 @@ export default function MasterTable({
               Tampilkan nonaktif
             </label>
             <TombolEkspor
-              namaFile={`daftar-${entity}.png`}
+              namaFile={() => namaFileTanggal(`daftar-${entity}`)}
               siapkan={() => ({
                 judul: `Daftar ${label}`,
                 subjudul: sembunyiNonaktif ? "Hanya data aktif" : "Semua data, termasuk nonaktif",

@@ -19,7 +19,9 @@ export default function TombolEkspor({
   ...rest
 }: {
   siapkan: () => DataEkspor;
-  namaFile?: string;
+  /** Nama file, atau fungsi yang dipanggil SAAT tombol ditekan (supaya tanggalnya
+   *  tidak basi kalau halaman dibiarkan terbuka melewati tengah malam). */
+  namaFile?: string | (() => string);
   children?: ReactNode;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
   const [sedang, setSedang] = useState(false);
@@ -28,7 +30,8 @@ export default function TombolEkspor({
     setSedang(true);
     try {
       const data = siapkan();
-      await unduhTabelGambar(data, namaFile);
+      const nama = typeof namaFile === "function" ? namaFile() : namaFile;
+      await unduhTabelGambar(data, nama);
     } catch (err) {
       alert(pesanError(err));
     } finally {

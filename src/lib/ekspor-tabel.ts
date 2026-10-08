@@ -195,39 +195,79 @@ export function slugNama(teks: string): string {
   );
 }
 
-/** Nama file PNG yang aman untuk download (huruf kecil, tanpa spasi). */
-export function namaFilePng(judul: string): string {
+/** Nama file PNG yang aman untuk download (huruf kecil, tanpa spasi), plus cap waktu. */
+export function namaFilePng(judul: string, sekarang: Date = new Date()): string {
   const bersih = judul
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
-  return `${bersih || "tabel"}.png`;
+  return `${bersih || "tabel"}_${capWaktuFile(sekarang)}.png`;
 }
 
 /**
- * Nama file PNG dengan tanggal, misal "belum-di-setorkan(Selasa-10-2026).png".
- * Hari ditulis teks (nama hari), bulan & tahun pakai angka.
+ * Cap waktu untuk nama file: "Kamis-8-10-2026_2344"
+ * = nama hari, tanggal, bulan (angka), tahun, lalu jam-menit (24 jam, waktu HP).
+ *
+ * Dulu cuma "Kamis-10-2026" (tanpa tanggal; 10 itu bulan), jadi setiap Kamis di
+ * bulan yang sama namanya kembar dan file lama tertimpa. Tanggal + jam-menit
+ * membuat nama unik per ekspor. Tanpa tanda kurung karena sebagian sistem
+ * mengganti tanda kurung di nama file dengan garis bawah.
  */
-export function namaFileTanggal(prefix: string): string {
-  const n = new Date();
-  const hari = n.toLocaleDateString("id-ID", { weekday: "long" }); // e.g. "Senin"
+export function capWaktuFile(n: Date = new Date()): string {
+  const hari = n.toLocaleDateString("id-ID", { weekday: "long" }); // e.g. "Kamis"
+  const tanggal = String(n.getDate());
   const bulan = String(n.getMonth() + 1);
   const tahun = String(n.getFullYear());
+  const jam = String(n.getHours()).padStart(2, "0");
+  const menit = String(n.getMinutes()).padStart(2, "0");
+  return `${hari}-${tanggal}-${bulan}-${tahun}_${jam}${menit}`;
+}
+
+/**
+ * Nama file PNG dengan tanggal, misal
+ * "belum-di-setorkan_Kamis-8-10-2026_2344.png".
+ */
+export function namaFileTanggal(prefix: string, sekarang: Date = new Date()): string {
   const dasar = prefix.replace(/\.png$/i, "").replace(/^\p{P}+|\p{P}+$/gu, "").trim() || "tabel";
-  return `${dasar}(${hari}-${bulan}-${tahun}).png`;
+  return `${dasar}_${capWaktuFile(sekarang)}.png`;
 }
 
 /**
  * Nama file PNG untuk satu bagian (satu model): sisipkan slug model di depan
  * tanggal supaya tiap model jadi file terpisah, misal
- * "hasil-potong-mikro-iswara-adhe(Kamis-8-2026).png".
+ * "hasil-potong-mikro-iswara-adhe_Kamis-8-10-2026_2344.png".
  */
-export function namaFileModel(prefix: string, modelNama: string): string {
+export function namaFileModel(prefix: string, modelNama: string, sekarang: Date = new Date()): string {
   const slug = slugNama(modelNama);
   const namaBlok = `${prefix}-${slug}`;
-  return namaFileTanggal(namaBlok);
+  return namaFileTanggal(namaBlok, sekarang);
+}
+
+/**
+ * Pastikan nama file belum dipakai di Dokumen/Gambar. Kalau sudah ada, tambah
+ * akhiran -2, -3, dst. supaya arsip lama tidak tertimpa. Dua ekspor dalam menit
+ * yang sama pada model yang sama adalah satu-satunya kasus yang masih bisa
+ * bentrok setelah cap waktu.
+ *
+ * Filesystem.stat melempar error kalau file tidak ada — itu yang dipakai sebagai
+ * tanda "nama masih bebas". Kalau stat gagal karena alasan lain (misal izin),
+ * nama dianggap bebas.
+ */
+export async function namaBelumDipakai(nama: string): Promise<string> {
+  const titik = nama.lastIndexOf(".");
+  const dasar = titik > 0 ? nama.slice(0, titik) : nama;
+  const ekor = titik > 0 ? nama.slice(titik) : "";
+  for (let i = 1; i <= 50; i++) {
+    const calon = i === 1 ? nama : `${dasar}-${i}${ekor}`;
+    try {
+      await Filesystem.stat({ path: `Gambar/${calon}`, directory: Directory.Documents });
+    } catch {
+      return calon;
+    }
+  }
+  return `${dasar}-${Date.now()}${ekor}`;
 }
 
 function lebarTotal(lebarKolom: number[]): number {
@@ -489,7 +529,8 @@ export async function unduhTabelGambar(data: DataEkspor, namaFile?: string): Pro
 }
 
 /** Simpan canvas jadi PNG, lalu buka share. Kembalikan error kalau gagal. */
-async function simpanGambar(kanvas: HTMLCanvasElement, nama: string): Promise<void> {
+async function simpanGambar(kanvas: HTMLCanvasElement, namaAsli: string): Promise<void> {
+  let nama = namaAsli;
   const blobP: Promise<Blob> = new Promise((resolve, reject) => {
     kanvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Canvas gagal dikonversi ke PNG"))), "image/png");
   });
@@ -500,6 +541,7 @@ async function simpanGambar(kanvas: HTMLCanvasElement, nama: string): Promise<vo
   // direktori Cache (FileProvider bawaan cuma meng-cover files en cache path),
   // jadi file di-copy dulu ke cache, di-share, lalu dihapus dari cache.
   if (Capacitor.isNativePlatform()) {
+    nama = await namaBelumDipakai(namaAsli); // jangan menimpa arsip lama
     const base64 = (await blobToDataUrl(blob)).split(",")[1]; // potong prefix data:image/png;base64,
     const path = `Gambar/${nama}`;
     await Filesystem.writeFile({

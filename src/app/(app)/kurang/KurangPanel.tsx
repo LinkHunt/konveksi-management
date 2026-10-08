@@ -87,7 +87,7 @@ export default function KurangPanel({ awal }: { awal: KotakKurang[] }) {
                   <p className="text-sm text-teks-lembut">{g.pemilikNama}</p>
                   <TombolEkspor
                     siapkan={() => siapkanModel(g)}
-                    namaFile={namaFileModel("belum-di-setorkan", g.modelNama)}
+                    namaFile={() => namaFileModel("belum-di-setorkan", g.modelNama)}
                   >
                     Foto model
                   </TombolEkspor>
