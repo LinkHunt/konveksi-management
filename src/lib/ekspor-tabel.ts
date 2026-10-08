@@ -70,8 +70,17 @@ const TINGGI_BARIS_MIN = 36;
 const TINGGI_HEADER = 40;
 const TINGGI_BARIS_TEKS = 18;
 const TINGGI_SUB = 18;
-const TINGGI_JUDUL = 26;
+const TINGGI_JUDUL = 22;
 const TINGGI_KAKI_BARIS = 16;
+
+// Lebar minimum gambar (piksel CSS) dan skala minimum. Tanpa ini lebar gambar
+// mengikuti isi tabel: tabel sempit (mis. WARNA + beberapa ukuran) jadi gambar
+// kecil yang judulnya terbungkus dua baris dan kakinya turun, sedangkan tabel
+// lebar tampil lega. Nilai 800 = lebar gambar "Hasil Potong" yang dijadikan
+// acuan. Skala minimum 2 menjaga ketajaman sama di HP berkepadatan rendah.
+const LEBAR_MIN_GAMBAR = 800;
+const SKALA_MIN = 2;
+const SKALA_MAKS = 3;
 
 // Bentuk font: "berat ukuran" saja, keluarga ditambahkan terpisah supaya
 // tidak ada spasi ganda yang bikin parser canvas menolak seluruh string.
@@ -275,6 +284,26 @@ function lebarTotal(lebarKolom: number[]): number {
 }
 
 /**
+ * Lebarkan kolom secara proporsional sampai gambar (kolom + padding kiri-kanan)
+ * setidaknya selebar LEBAR_MIN_GAMBAR. Sisa pembulatan ditambahkan ke kolom
+ * pertama. Tabel yang sudah cukup lebar tidak diubah.
+ */
+export function lebarkanKolomMinimum(lebarKolom: number[]): number[] {
+  const target = LEBAR_MIN_GAMBAR - PAD_X * 2;
+  const total = lebarTotal(lebarKolom);
+  if (lebarKolom.length === 0 || total >= target) return lebarKolom;
+  const faktor = target / total;
+  const hasil = lebarKolom.map((v) => Math.floor(v * faktor));
+  hasil[0] += target - lebarTotal(hasil);
+  return hasil;
+}
+
+/** Skala kanvas: mengikuti kepadatan layar, tapi dijaga di antara SKALA_MIN dan SKALA_MAKS. */
+export function hitungSkala(devicePixelRatio: number): number {
+  return Math.min(Math.max(devicePixelRatio || 1, SKALA_MIN), SKALA_MAKS);
+}
+
+/**
  * Gambar tabel ke canvas lalu trigger download PNG.
  *
  * Dua fase, sengaja terpisah:
@@ -288,7 +317,7 @@ export async function unduhTabelGambar(data: DataEkspor, namaFile?: string): Pro
   if (typeof document === "undefined" || data.kolom.length === 0) return;
 
   const tema = ambilTema();
-  const skala = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+  const skala = hitungSkala(window.devicePixelRatio);
 
   const ukur = document.createElement("canvas");
   const uctx = ukur.getContext("2d");
@@ -323,6 +352,9 @@ export async function unduhTabelGambar(data: DataEkspor, namaFile?: string): Pro
     const faktor = Math.max(adaRuang / lebarTotal(lebarKolom), 0.25);
     lebarKolom = lebarKolom.map((v) => Math.max(Math.floor(v * faktor), 56));
   }
+  // Tabel sempit dilebarkan ke lebar minimum supaya judul muat satu baris dan
+  // ukuran gambar seragam antar ekspor.
+  lebarKolom = lebarkanKolomMinimum(lebarKolom);
 
   // ---- fase 1b: bungkus isi sesuai lebar akhir ----
   const isiPerKolom = data.kolom.map((_, ci) => {
