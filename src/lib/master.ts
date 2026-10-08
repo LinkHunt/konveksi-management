@@ -8,7 +8,6 @@
 // Field `aktif` disimpan sebagai INTEGER 0/1 di SQLite; tipe boolean dijaga
 // supaya UI tidak berubah.
 
-import type { Database } from "sql.js";
 import { semua, satu, jalankan, simpanDb } from "./db";
 import { badRequest, notFound } from "./api";
 import {
@@ -142,7 +141,7 @@ function basicDari(r: { id: number; nama: string; aktif: number }): BarisBasic {
   return { id: r.id, nama: r.nama, aktif: r.aktif === 1 };
 }
 
-export function ambil(db: Database, entity: MasterEntity, id: number): BarisBasic | BarisModel | null {
+export function ambil(entity: MasterEntity, id: number): BarisBasic | BarisModel | null {
   if (entity === "model") {
     const r = satu<{ id: number; nama: string; aktif: number; pemilikId: number; pemilikNama: string }>(
       `SELECT m.id, m.nama, m.aktif, m.pemilikId, p.nama AS pemilikNama
@@ -199,10 +198,10 @@ export function daftar(
 }
 
 export async function buat(
-  db: Database,
   entity: MasterEntity,
   body: MasterCreateBody,
 ): Promise<BarisBasic | BarisModel> {
+  const db = getDb();
   const aktif = ((body as { aktif?: boolean }).aktif === false ? 0 : 1) as 0 | 1;
 
   if (entity === "model") {
@@ -217,14 +216,14 @@ export async function buat(
     ]);
     await simpanDb();
     const id = lastId();
-    return ambil(db, entity, id)!;
+    return ambil(entity, id)!;
   }
 
   const n = (body as { nama: string }).nama;
   const tabel = entity === "pemilik" ? "Pemilik" : "Warna";
   jalankan(`INSERT INTO ${tabel} (nama, aktif) VALUES (?, ?)`, [n, aktif]);
   await simpanDb();
-  return ambil(db, entity, lastId())!;
+  return ambil(entity, lastId())!;
 }
 
 /** ID baris terakhir yang di-INSERT pada koneksi aktif (sql.js). */
@@ -233,12 +232,12 @@ function lastId(): number {
 }
 
 export async function ubah(
-  db: Database,
   entity: MasterEntity,
   id: number,
   data: { nama?: string; aktif?: boolean; pemilikId?: number },
 ): Promise<BarisBasic | BarisModel> {
-  if (!ambil(db, entity, id)) throw notFound(`${LABEL_ENTITY[entity]} tidak ditemukan.`);
+  const db = getDb();
+  if (!ambil(entity, id)) throw notFound(`${LABEL_ENTITY[entity]} tidak ditemukan.`);
 
   if (entity === "model") {
     jalankan(
@@ -262,5 +261,5 @@ export async function ubah(
     );
   }
   await simpanDb();
-  return ambil(db, entity, id)!;
+  return ambil(entity, id)!;
 }

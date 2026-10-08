@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { getDb } from "@/lib/db";
 import { daftarSetoran } from "@/lib/setoran";
 import { daftar } from "@/lib/master";
 import { PageHeader } from "@/components/ui/Alert";
@@ -14,11 +13,10 @@ import SetoranPanel from "./SetoranPanel";
  */
 export default function SetoranPage() {
   const { model, warna, setoran } = useMemo(() => {
-    const db = getDb();
     return {
-      model: daftar(db, "model", {}),
-      warna: daftar(db, "warna", {}),
-      setoran: daftarSetoran(db, { limit: 30 }),
+      model: daftar("model", {}),
+      warna: daftar("warna", {}),
+      setoran: daftarSetoran({ limit: 30 }),
     };
   }, []);
 
