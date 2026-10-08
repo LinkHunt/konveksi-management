@@ -16,6 +16,17 @@
 //
 // Client-side saja: memakai document / canvas, jadi file ini hanya boleh
 // diimpor dari komponen "use client".
+//
+// Menyimpan gambar:
+// - Di WebView Capacitor, klik link download (a.download + blob URL) DIABAIKAN
+//   — tidak muncul apa-apa. Karena itu PNG ditulis ke folder Dokumen/Gambar
+//   lewat @capacitor/filesystem, lalu langsung dibuka share sheet
+//   (@capacitor/share) supaya bibi bisa kirim ke WhatsApp dll.
+// - Fallback browser (vite dev) tetap pakai download link biasa.
+
+import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 
 export type Perataan = "left" | "right" | "center";
 
@@ -232,7 +243,7 @@ function lebarTotal(lebarKolom: number[]): number {
  *    berselang-seling, garis tipis antar sel, lalu kaki berisi asal data
  *    dan waktu cetak.
  */
-export function unduhTabelGambar(data: DataEkspor, namaFile?: string): void {
+export async function unduhTabelGambar(data: DataEkspor, namaFile?: string): Promise<void> {
   if (typeof document === "undefined" || data.kolom.length === 0) return;
 
   const tema = ambilTema();
@@ -429,16 +440,68 @@ export function unduhTabelGambar(data: DataEkspor, namaFile?: string): void {
 
   // ---- simpan ----
   const nama = namaFile ?? namaFilePng(data.judul);
-  kanvas.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = nama;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-  }, "image/png");
+  await simpanGambar(kanvas, nama);
+}
+
+/** Simpan canvas jadi PNG, lalu buka share. Kembalikan error kalau gagal. */
+async function simpanGambar(kanvas: HTMLCanvasElement, nama: string): Promise<void> {
+  const blobP: Promise<Blob> = new Promise((resolve, reject) => {
+    kanvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Canvas gagal dikonversi ke PNG"))), "image/png");
+  });
+  const blob = await blobP;
+
+  // WebView Capacitor: tulis ke folder Dokumen/Gambar (arsip permanen) lalu
+  // share. Share lewat @capacitor/share di Android hanya bisa membaca file di
+  // direktori Cache (FileProvider bawaan cuma meng-cover files en cache path),
+  // jadi file di-copy dulu ke cache, di-share, lalu dihapus dari cache.
+  if (Capacitor.isNativePlatform()) {
+    const base64 = (await blobToDataUrl(blob)).split(",")[1]; // potong prefix data:image/png;base64,
+    const path = `Gambar/${nama}`;
+    await Filesystem.writeFile({
+      path,
+      data: base64,
+      directory: Directory.Documents,
+      recursive: true,
+    });
+
+    await Filesystem.writeFile({
+      path: nama,
+      data: base64,
+      directory: Directory.Cache,
+      recursive: true,
+    });
+    try {
+      const uri = (await Filesystem.getUri({ path: nama, directory: Directory.Cache })).uri;
+      await Share.share({
+        title: nama,
+        text: nama,
+        dialogTitle: "Simpan / bagikan gambar",
+        files: [uri],
+      });
+    } finally {
+      await Filesystem.deleteFile({ path: nama, directory: Directory.Cache }).catch(() => {});
+    }
+    return;
+  }
+
+  // Fallback browser (vite dev): download link biasa.
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nama;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/** Blob -> data URL (async, supaya file besar tidak memblokir). */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result as string);
+    fr.onerror = () => reject(fr.error ?? new Error("Gagal baca gambar"));
+    fr.readAsDataURL(blob);
+  });
 }

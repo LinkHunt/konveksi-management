@@ -1,20 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Button } from "./Button";
 import { unduhTabelGambar, type DataEkspor } from "@/lib/ekspor-tabel";
 
-/*
- * Tombol "Ekspor gambar" yang ditaruh di judul tiap tabel.
- *
- * Data dibentuk lewat callback `siapkan`, bukan prop objek langsung, supaya
- * isi gambar selalu mengikuti keadaan tabel saat tombol diklik — termasuk
- * filter yang sedang aktif dan baris yang sedang disaring oleh kotak cari.
- * Kalau datanya dikirim sebagai prop, ia di-capture saat render dan bisa
- * basi kalau ada perubahan state yang tidak ikut re-render tombol.
- */
-
 const IKON = "M12 3v10m0 0 3.5-3.5M12 13 8.5 9.5M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2";
+
+function pesanError(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 export default function TombolEkspor({
   siapkan,
@@ -27,13 +22,29 @@ export default function TombolEkspor({
   namaFile?: string;
   children?: ReactNode;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick">) {
-  function jalan() {
-    const data = siapkan();
-    unduhTabelGambar(data, namaFile);
+  const [sedang, setSedang] = useState(false);
+
+  async function jalan() {
+    setSedang(true);
+    try {
+      const data = siapkan();
+      await unduhTabelGambar(data, namaFile);
+    } catch (err) {
+      alert(pesanError(err));
+    } finally {
+      setSedang(false);
+    }
   }
 
   return (
-    <Button variant="secondary" size="sm" className={className} onClick={jalan} {...rest}>
+    <Button
+      variant="secondary"
+      size="sm"
+      className={className}
+      onClick={jalan}
+      disabled={sedang}
+      {...rest}
+    >
       <svg
         viewBox="0 0 24 24"
         fill="none"
@@ -46,7 +57,7 @@ export default function TombolEkspor({
       >
         <path d={IKON} />
       </svg>
-      {children}
+      {sedang ? "Menyiapkan..." : children}
     </Button>
   );
 }
