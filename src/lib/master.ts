@@ -201,7 +201,6 @@ export async function buat(
   entity: MasterEntity,
   body: MasterCreateBody,
 ): Promise<BarisBasic | BarisModel> {
-  const db = getDb();
   const aktif = ((body as { aktif?: boolean }).aktif === false ? 0 : 1) as 0 | 1;
 
   if (entity === "model") {
@@ -236,7 +235,6 @@ export async function ubah(
   id: number,
   data: { nama?: string; aktif?: boolean; pemilikId?: number },
 ): Promise<BarisBasic | BarisModel> {
-  const db = getDb();
   if (!ambil(entity, id)) throw notFound(`${LABEL_ENTITY[entity]} tidak ditemukan.`);
 
   if (entity === "model") {

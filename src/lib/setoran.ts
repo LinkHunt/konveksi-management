@@ -8,7 +8,6 @@
 //
 // Pemilik tidak disimpan di tabel setoran: cukup ikut dari ModelBaju.
 
-import type { Database } from "sql.js";
 import { semua, satu, jalankan, getDb, simpanDb } from "./db";
 import { toLabelUkuran, type UkuranLabel } from "./ukuran";
 import { badRequest, notFound } from "./api";
@@ -42,7 +41,7 @@ export type RingkasanSetoran = {
 };
 
 /** Query dasar item setoran + join model/pemilik/warna. */
-function queryItems(db: Database, setoranId?: number): BarisSetoranItem[] {
+function queryItems(setoranId?: number): BarisSetoranItem[] {
   const rows = semua<{
     modelId: number;
     modelNama: string;
@@ -81,8 +80,8 @@ function queryItems(db: Database, setoranId?: number): BarisSetoranItem[] {
   }));
 }
 
-function keRingkasan(db: Database, s: { id: number; tanggal: string; catatan: string | null }): RingkasanSetoran {
-  const items = queryItems(db, s.id);
+function keRingkasan(s: { id: number; tanggal: string; catatan: string | null }): RingkasanSetoran {
+  const items = queryItems(s.id);
   return {
     id: s.id,
     tanggal: s.tanggal,
@@ -96,7 +95,6 @@ function keRingkasan(db: Database, s: { id: number; tanggal: string; catatan: st
 export function daftarSetoran(
   filter: { tanggal?: string; limit?: number } = {},
 ): RingkasanSetoran[] {
-  const db = getDb();
   const where: string[] = [];
   const params: unknown[] = [];
   if (filter.tanggal) {
@@ -109,18 +107,17 @@ export function daftarSetoran(
     `SELECT id, tanggal, catatan FROM Setoran s ${whereSql} ORDER BY s.tanggal DESC, s.id DESC ${limitSql}`,
     params,
   );
-  return rows.map((r) => keRingkasan(db, r));
+  return rows.map((r) => keRingkasan(r));
 }
 
 /** Satu setoran lengkap dengan item. */
 export function detailSetoran(id: number): DetailSetoran | null {
-  const db = getDb();
   const s = satu<{ id: number; tanggal: string; catatan: string | null; createdAt: string; updatedAt: string }>(
     `SELECT id, tanggal, catatan, createdAt, updatedAt FROM Setoran WHERE id = ?`,
     [id],
   );
   if (!s) return null;
-  const items = queryItems(db, id);
+  const items = queryItems(id);
   return {
     id: s.id,
     tanggal: s.tanggal,

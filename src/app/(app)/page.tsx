@@ -1,7 +1,6 @@
 "use client";
 
 import { Link } from "react-router-dom";
-import { getDb } from "@/lib/db";
 import { hitungKurang, kotakKurang } from "@/lib/kurang";
 import { daftarSetoran } from "@/lib/setoran";
 import { Alert, Card, PageHeader } from "@/components/ui/Alert";
@@ -16,9 +15,8 @@ import { useMemo } from "react";
  */
 export default function DashboardPage() {
   const { setoran, totalKurangStr, terbesar, adaLebih } = useMemo(() => {
-    const db = getDb();
     const baris = hitungKurang({});
-    const setoran = daftarSetoran(db, { limit: 8 });
+    const setoran = daftarSetoran({ limit: 8 });
     const kotak = kotakKurang(baris).filter((k) => !k.selesai);
     const totalKurang = kotak.reduce((s, k) => s + k.total, 0);
     const terbesar = [...kotak].sort((a, b) => b.total - a.total).slice(0, 8);
